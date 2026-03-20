@@ -124,14 +124,14 @@ cd backend
 
 3. Test request:
 ```bash
-curl -X POST "http://127.0.0.1:8000/v1/homework/parse?expected_type=english" \
+curl -X POST "http://127.0.0.1:3000/v1/homework/parse?expected_type=english" \
   -H "content-type: image/jpeg" \
   --data-binary "@/absolute/path/to/homework.jpg"
 ```
 
 5. Parse and fill answers back into image:
 ```bash
-curl -sS -X POST "http://127.0.0.1:8000/v1/homework/parse-fill?expected_type=english" \
+curl -sS -X POST "http://127.0.0.1:3000/v1/homework/parse-fill?expected_type=english" \
   -H "content-type: image/jpeg" \
   --data-binary "@/absolute/path/to/homework.jpg" > /tmp/parse-fill.json
 ```
@@ -152,7 +152,7 @@ ls -t output/filled-*.jpg | head -n 1
 
 4. Check OCR provider availability:
 ```bash
-curl -sS http://127.0.0.1:8000/v1/ocr/providers
+curl -sS http://127.0.0.1:3000/v1/ocr/providers
 ```
 
 ## 11) OpenCode Integration Notes
