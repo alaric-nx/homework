@@ -2,10 +2,12 @@ package com.homework.assistant.util
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
@@ -25,6 +27,10 @@ class TtsManager(private val appContext: Context) {
     private val handler = Handler(Looper.getMainLooper())
     private var pendingText: String? = null
     @Volatile private var lastRetryAtMs: Long = 0L
+    @Volatile private var initStartAtMs: Long = 0L
+    @Volatile private var initToken: Long = 0L
+    @Volatile private var timeoutRecoveredOnce: Boolean = false
+    private val initTimeoutMs = 3000L
 
     /**
      * 用指定 context 初始化（建议传 Activity context）
@@ -38,6 +44,10 @@ class TtsManager(private val appContext: Context) {
     private fun doInit(ctx: Context, attempt: Int = 1) {
         if (attempt == 1) {
             initFailed = false
+            initStartAtMs = System.currentTimeMillis()
+            initToken = System.nanoTime()
+            timeoutRecoveredOnce = false
+            scheduleInitWatchdog(initToken)
         }
         Log.d("TtsManager", "TTS doInit attempt=$attempt")
         val listener = TextToSpeech.OnInitListener { status ->
@@ -48,10 +58,15 @@ class TtsManager(private val appContext: Context) {
             } else {
                 Log.e("TtsManager", "TTS init FAILED attempt=$attempt")
                 if (attempt == 1) {
-                    // 尝试指定 Google TTS
-                    handler.postDelayed({
-                        doInitWithEngine(ctx, "com.google.android.tts", attempt + 1)
-                    }, 500L)
+                    // Android 国内机型不一定有 Google TTS，尝试系统可用引擎
+                    val engine = pickAlternativeEngine(ctx)
+                    if (!engine.isNullOrBlank()) {
+                        handler.postDelayed({
+                            doInitWithEngine(ctx, engine, attempt + 1)
+                        }, 500L)
+                    } else {
+                        handler.postDelayed({ doInit(ctx, attempt + 1) }, 800L)
+                    }
                 } else if (attempt < 4) {
                     handler.postDelayed({ doInit(ctx, attempt + 1) }, attempt * 1500L)
                 } else {
@@ -62,7 +77,13 @@ class TtsManager(private val appContext: Context) {
             }
         }
         tts?.shutdown()
-        tts = TextToSpeech(ctx, listener)
+        val systemDefaultEngine = getSystemDefaultEnginePackage(ctx)
+        if (!systemDefaultEngine.isNullOrBlank()) {
+            Log.d("TtsManager", "TTS init with system default engine=$systemDefaultEngine")
+            tts = TextToSpeech(ctx, listener, systemDefaultEngine)
+        } else {
+            tts = TextToSpeech(ctx, listener)
+        }
     }
 
     private fun doInitWithEngine(ctx: Context, engine: String, attempt: Int) {
@@ -87,11 +108,31 @@ class TtsManager(private val appContext: Context) {
 
     fun speak(text: String) {
         if (text.isBlank()) return
+        val elapsed = System.currentTimeMillis() - initStartAtMs
 
         if (isReady && tts != null) {
             val r = speakInternal(tts!!, text.trim(), "tts_${System.nanoTime()}")
             Log.d("TtsManager", "speak result=$r text='${text.take(30)}'")
+            if (r == TextToSpeech.ERROR) {
+                // 引擎就绪但播放失败：回收状态，允许下一次点击重新初始化
+                isReady = false
+                initStarted = false
+                initFailed = true
+                Toast.makeText(appContext, "当前语音引擎播放失败，请重试或切换TTS引擎", Toast.LENGTH_LONG).show()
+            }
             return
+        }
+
+        // 初始化长时间无结果时，先回收状态，避免一直“语音加载中…”
+        val stuck = initStarted && !isReady && elapsed >= initTimeoutMs
+        val nullEngineStuck = initStarted && tts == null && elapsed >= 1500L
+        if (stuck || nullEngineStuck) {
+            val wasEngineNull = tts == null
+            Log.e("TtsManager", "TTS init seems stuck, forcing reset (elapsed=${elapsed}ms, engineNull=$wasEngineNull)")
+            tts?.shutdown()
+            tts = null
+            initStarted = false
+            initFailed = true
         }
 
         if (!initFailed) {
@@ -146,6 +187,9 @@ class TtsManager(private val appContext: Context) {
         initFailed = false
         pendingText = null
         lastRetryAtMs = 0L
+        initStartAtMs = 0L
+        initToken = 0L
+        timeoutRecoveredOnce = false
     }
 
     private fun onInitSuccess(logTag: String = "") {
@@ -169,6 +213,9 @@ class TtsManager(private val appContext: Context) {
             "us"
         }
         Log.d("TtsManager", "setLanguage final=$finalLanguage $logTag")
+        try {
+            Log.d("TtsManager", "tts current engine=${engine.defaultEngine}")
+        } catch (_: Exception) {}
 
         engine.setSpeechRate(1.0f)
         engine.setPitch(1.0f)
@@ -181,6 +228,7 @@ class TtsManager(private val appContext: Context) {
         })
 
         isReady = true
+        initStarted = false
         initFailed = false
         Log.d("TtsManager", "TTS ready! $logTag")
         pendingText?.let { text ->
@@ -195,6 +243,70 @@ class TtsManager(private val appContext: Context) {
         } else {
             @Suppress("DEPRECATION")
             engine.speak(text, TextToSpeech.QUEUE_FLUSH, null)
+        }
+    }
+
+    private fun scheduleInitWatchdog(token: Long) {
+        handler.postDelayed({
+            // token 不一致表示已开启新一轮初始化，忽略旧 watchdog
+            if (token != initToken) return@postDelayed
+            if (!isReady && initStarted) {
+                if (!timeoutRecoveredOnce) {
+                    // 部分 ROM 在 Activity context 绑定失败，超时后改用 Application context 再试一次
+                    timeoutRecoveredOnce = true
+                    Log.e("TtsManager", "TTS init timeout, retry with app context")
+                    tts?.shutdown()
+                    tts = null
+                    doInit(appContext, 2)
+                } else {
+                    Log.e("TtsManager", "TTS init timeout after ${initTimeoutMs}ms")
+                    tts?.shutdown()
+                    tts = null
+                    initStarted = false
+                    initFailed = true
+                }
+            }
+        }, initTimeoutMs)
+    }
+
+    private fun pickAlternativeEngine(ctx: Context): String? {
+        return getSystemDefaultEnginePackage(ctx) ?: queryEnginePackages(ctx).firstOrNull()
+    }
+
+    private fun getSystemDefaultEnginePackage(ctx: Context): String? {
+        return try {
+            Settings.Secure.getString(ctx.contentResolver, "tts_default_synth")
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun queryEnginePackages(ctx: Context): List<String> {
+        return try {
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                PackageManager.ResolveInfoFlags.of(0)
+            } else {
+                null
+            }
+            val services = if (flags != null) {
+                ctx.packageManager.queryIntentServices(
+                    Intent(TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE),
+                    flags
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                ctx.packageManager.queryIntentServices(
+                    Intent(TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE),
+                    0
+                )
+            }
+            services
+                .mapNotNull { it.serviceInfo?.packageName }
+                .distinct()
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 }

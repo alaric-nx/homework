@@ -43,6 +43,19 @@ fun ResultScreen(
     }
     val result = ResultHolder.latestResult
     val filledImageBase64 = ResultHolder.filledImageBase64
+    val filteredSpeakUnits = remember(result) {
+        if (result == null) {
+            emptyList()
+        } else {
+            val vocabWords = result.key_vocabulary
+                .map { it.word.trim().lowercase() }
+                .filter { it.isNotEmpty() }
+                .toSet()
+            result.speak_units.filter { unit ->
+                unit.type != "word" || unit.text.trim().lowercase() !in vocabWords
+            }
+        }
+    }
     val filledBitmap = remember(filledImageBase64) {
         filledImageBase64?.let {
             try {
@@ -156,7 +169,7 @@ fun ResultScreen(
                 }
 
                 // 点读单元
-                if (result.speak_units.isNotEmpty()) {
+                if (filteredSpeakUnits.isNotEmpty()) {
                     item {
                         Text(
                             text = stringResource(R.string.tap_to_speak),
@@ -166,7 +179,7 @@ fun ResultScreen(
                     }
                     item {
                         SpeakUnitsGrid(
-                            units = result.speak_units,
+                            units = filteredSpeakUnits,
                             onSpeak = { ttsManager.speak(it.text) }
                         )
                     }

@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import com.homework.assistant.HomeworkApplication
 import com.homework.assistant.R
 import java.io.File
 
@@ -27,7 +28,12 @@ fun CaptureScreen(
     onMultipleImagesSelected: (List<Uri>) -> Unit
 ) {
     val context = LocalContext.current
+    val ttsManager = (context.applicationContext as HomeworkApplication).ttsManager
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
+
+    LaunchedEffect(Unit) {
+        ttsManager.ensureInit(context)
+    }
 
     // 相册多选
     val galleryMultiLauncher = rememberLauncherForActivityResult(
