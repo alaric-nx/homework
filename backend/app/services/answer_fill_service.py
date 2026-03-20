@@ -49,11 +49,15 @@ class AnswerFillService:
         right_order = [2, 4, 6, 8]
         detected = self._detect_answer_lines(image)
 
+        debug_points: list[tuple[int, int, int, int, str]] = []
+
         for i, num in enumerate(left_order):
             text = answers.get(num)
             if text:
                 if i < len(detected["left"]):
-                    self._draw_text_fit_line(draw, text, detected["left"][i], w, h, font_size)
+                    line = detected["left"][i]
+                    self._draw_text_fit_line(draw, text, line, w, h, font_size)
+                    debug_points.append((*line, f"L{num}:{text}"))
                 else:
                     # fallback placement
                     left_x = int(w * self.LEFT_X_RATIO)
@@ -61,12 +65,15 @@ class AnswerFillService:
                     line_gap = int(h * self.LINE_GAP_RATIO)
                     fallback_line = (left_x, start_y + i * line_gap, int(w * 0.26), 2)
                     self._draw_text_fit_line(draw, text, fallback_line, w, h, font_size)
+                    debug_points.append((*fallback_line, f"LF{num}:{text}"))
 
         for i, num in enumerate(right_order):
             text = answers.get(num)
             if text:
                 if i < len(detected["right"]):
-                    self._draw_text_fit_line(draw, text, detected["right"][i], w, h, font_size)
+                    line = detected["right"][i]
+                    self._draw_text_fit_line(draw, text, line, w, h, font_size)
+                    debug_points.append((*line, f"R{num}:{text}"))
                 else:
                     # fallback placement
                     right_x = int(w * self.RIGHT_X_RATIO)
@@ -74,11 +81,13 @@ class AnswerFillService:
                     line_gap = int(h * self.LINE_GAP_RATIO)
                     fallback_line = (right_x, start_y + i * line_gap, int(w * 0.26), 2)
                     self._draw_text_fit_line(draw, text, fallback_line, w, h, font_size)
+                    debug_points.append((*fallback_line, f"RF{num}:{text}"))
 
         out = io.BytesIO()
         image.save(out, format="JPEG", quality=90)
         out_bytes = out.getvalue()
         file_path = self._write_output_file(out_bytes)
+        self._write_debug_overlay(image, debug_points)
         return base64.b64encode(out_bytes).decode("utf-8"), str(file_path)
 
     def _parse_answer_map(self, reference_answer: str) -> dict[int, str]:
@@ -103,6 +112,22 @@ class AnswerFillService:
         path = (output_dir / f"filled-{ts}.jpg").resolve()
         path.write_bytes(image_bytes)
         return path
+
+    def _write_debug_overlay(self, image, debug_points: list[tuple[int, int, int, int, str]]) -> None:
+        try:
+            from PIL import ImageDraw
+        except Exception:
+            return
+        overlay = image.copy()
+        draw = ImageDraw.Draw(overlay)
+        for x, y, w, h, label in debug_points:
+            draw.rectangle([(x, y - 2), (x + w, y + max(2, h))], outline=(0, 180, 0), width=2)
+            draw.text((x, max(0, y - 18)), label, fill=(0, 120, 0))
+        output_dir = Path.cwd() / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        debug_path = (output_dir / f"filled-debug-{ts}.jpg").resolve()
+        overlay.save(debug_path, format="JPEG", quality=90)
 
     def _detect_answer_lines(self, image) -> dict[str, list[tuple[int, int, int, int]]]:
         """

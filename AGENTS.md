@@ -80,3 +80,23 @@
 ## 子目录说明
 - 前端说明：`/frontend/AGENTS.md`
 - 后端说明：`/backend/AGENTS.md`
+
+## Opencode Remote 图片触发规则（新增）
+当在项目根目录通过 opencode remote 进行交互时，若用户输入里包含“图片文件”（本地路径或上传图片），执行以下默认动作：
+
+1. 优先调用后端接口 `POST /v1/homework/parse-fill`，而不是只做文本 OCR 或只返回说明。
+2. 请求方式使用二进制图片 body（`content-type: image/jpeg|image/png|application/octet-stream`），不使用 base64 作为输入。
+3. 查询参数默认带 `expected_type=english`，除非用户明确要求其它学科。
+4. 返回时至少包含：
+   - 结构化解析结果（6 个目标字段）
+   - 回填图片落地路径（`filled_image_path`）
+5. 若后端服务未启动，先提示并给出最小启动命令：
+   - `cd backend && ./start_backend.sh`
+6. 若回填位置偏差，优先基于后端返回的最新落地图继续迭代，不改成手工口算答案。
+
+推荐执行命令模板（供 agent 在 shell 中调用）：
+```bash
+curl -sS -X POST "http://127.0.0.1:8000/v1/homework/parse-fill?expected_type=english" \
+  -H "content-type: image/jpeg" \
+  --data-binary "@/absolute/path/to/image.jpg"
+```
