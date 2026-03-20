@@ -98,8 +98,9 @@ fun MergeScreen(
                 val api = HomeworkApi()
                 val result = api.parseHomework(file)
                 result.fold(
-                    onSuccess = {
-                        ResultHolder.latestResult = it
+                    onSuccess = { apiResp ->
+                        ResultHolder.latestResult = apiResp.result
+                        ResultHolder.filledImageBase64 = apiResp.filled_image_base64
                         isUploading = false
                         onUploadComplete()
                     },

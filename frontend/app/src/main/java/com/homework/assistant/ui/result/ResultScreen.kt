@@ -1,5 +1,8 @@
 package com.homework.assistant.ui.result
 
+import android.graphics.BitmapFactory
+import android.util.Base64
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -10,6 +13,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -33,6 +38,15 @@ fun ResultScreen(
     val context = LocalContext.current
     val ttsManager = (context.applicationContext as HomeworkApplication).ttsManager
     val result = ResultHolder.latestResult
+    val filledImageBase64 = ResultHolder.filledImageBase64
+    val filledBitmap = remember(filledImageBase64) {
+        filledImageBase64?.let {
+            try {
+                val bytes = Base64.decode(it, Base64.DEFAULT)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            } catch (_: Exception) { null }
+        }
+    }
 
     DisposableEffect(Unit) {
         onDispose { ttsManager.stop() }
@@ -70,9 +84,32 @@ fun ResultScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // 不确定性警告
-                if (result.uncertainty.requires_review) {
+                if (result.uncertainty.requires_review && !result.uncertainty.warning.isNullOrEmpty()) {
                     item {
-                        UncertaintyBanner(result.uncertainty.warning)
+                        UncertaintyBanner(result.uncertainty.warning!!)
+                    }
+                }
+
+                // 填写后的题图
+                if (filledBitmap != null) {
+                    item {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = "填写后题图",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Image(
+                                    bitmap = filledBitmap.asImageBitmap(),
+                                    contentDescription = "填写后题图",
+                                    contentScale = ContentScale.FillWidth,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
                     }
                 }
 

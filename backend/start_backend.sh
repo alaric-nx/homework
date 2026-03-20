@@ -10,16 +10,14 @@ else
   CONFIG_FILE="${BACKEND_DIR}/config.env"
 fi
 
-if [[ ! -f "${CONFIG_FILE}" ]]; then
-  echo "Missing config file: ${CONFIG_FILE}"
-  echo "Create it first, then retry."
-  exit 1
+if [[ -f "${CONFIG_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${CONFIG_FILE}"
+  set +a
+else
+  echo "Config file not found, start with defaults: ${CONFIG_FILE}"
 fi
-
-set -a
-# shellcheck disable=SC1090
-source "${CONFIG_FILE}"
-set +a
 
 cd "${BACKEND_DIR}"
 

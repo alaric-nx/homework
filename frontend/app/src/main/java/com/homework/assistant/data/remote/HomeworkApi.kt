@@ -1,6 +1,7 @@
 package com.homework.assistant.data.remote
 
 import com.google.gson.Gson
+import com.homework.assistant.data.model.ApiResponse
 import com.homework.assistant.data.model.ParseResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -48,9 +49,9 @@ class HomeworkApi(
     private val gson = Gson()
 
     /**
-     * 上传合并后的题图，返回解析结果
+     * 上传合并后的题图，返回解析结果（含填写后图片）
      */
-    suspend fun parseHomework(imageFile: File): Result<ParseResponse> = withContext(Dispatchers.IO) {
+    suspend fun parseHomework(imageFile: File): Result<ApiResponse> = withContext(Dispatchers.IO) {
         try {
             val body = imageFile.asRequestBody("image/jpeg".toMediaType())
 
@@ -70,7 +71,7 @@ class HomeworkApi(
             val responseBody = response.body?.string()
                 ?: return@withContext Result.failure(IOException("响应为空"))
 
-            val parsed = gson.fromJson(responseBody, ParseResponse::class.java)
+            val parsed = gson.fromJson(responseBody, ApiResponse::class.java)
             Result.success(parsed)
         } catch (e: Exception) {
             Result.failure(e)

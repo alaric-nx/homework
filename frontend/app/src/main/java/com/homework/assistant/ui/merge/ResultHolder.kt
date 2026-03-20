@@ -8,4 +8,5 @@ import com.homework.assistant.data.model.ParseResponse
  */
 object ResultHolder {
     var latestResult: ParseResponse? = null
+    var filledImageBase64: String? = null
 }
