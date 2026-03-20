@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "skills": {
+    "ocr-document-processor": {
+      "source": "dkyazzentwatwa/chatgpt-skills",
+      "sourceType": "github",
+      "computedHash": "f3ccafc47c4896e493153acd456d84dbea44692bd09f858aaab67745f973af50"
+    },
+    "paddleocr-doc-parsing": {
+      "source": "aidenwu0209/paddleocr-skills",
+      "sourceType": "github",
+      "computedHash": "535466ff8fd414f334293be882421b12cde619723dc9c62d2c83c8f8944351c5"
+    },
+    "paddleocr-text-recognition": {
+      "source": "aidenwu0209/paddleocr-skills",
+      "sourceType": "github",
+      "computedHash": "bc8bf38a6d7fa1d74c487680e2ec80446c5bc5b004b2401ba2f71f0a5d8a6fcb"
+    }
+  }
+}

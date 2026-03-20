@@ -1,0 +1,37 @@
+# macOS
+.DS_Store
+
+# Editor / IDE
+.idea/
+.vscode/
+*.iml
+
+# Local agent/tool state
+.agents/
+.claude/
+.kiro/
+
+# Android / Gradle (frontend)
+frontend/.gradle/
+frontend/.kotlin/
+frontend/local.properties
+frontend/captures/
+frontend/**/build/
+frontend/.idea/
+
+# Python (backend)
+backend/.pytest_cache/
+backend/**/__pycache__/
+backend/logs/
+backend/output/
+*.pyc
+*.pyo
+
+# Local env / secrets
+.env
+*.env
+backend/config.env
+
+# Virtual environments
+.venv/
+venv/

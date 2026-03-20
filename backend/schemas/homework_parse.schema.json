@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HomeworkParseResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "question_meaning_zh",
+    "reference_answer",
+    "explanation_zh",
+    "key_vocabulary",
+    "speak_units",
+    "uncertainty"
+  ],
+  "properties": {
+    "question_meaning_zh": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reference_answer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "explanation_zh": {
+      "type": "string",
+      "minLength": 1
+    },
+    "key_vocabulary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["word", "meaning_zh"],
+        "properties": {
+          "word": {
+            "type": "string",
+            "minLength": 1
+          },
+          "meaning_zh": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ipa": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "speak_units": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["unit_type", "text"],
+        "properties": {
+          "unit_type": {
+            "type": "string",
+            "enum": ["word", "sentence"]
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "uncertainty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requires_review", "confidence"],
+      "properties": {
+        "requires_review": {
+          "type": "boolean"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "reason": {
+          "type": ["string", "null"]
+        }
+      }
+    }
+  }
+}

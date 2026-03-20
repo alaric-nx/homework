@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">作业助手</string>
+    <string name="take_photo">拍照</string>
+    <string name="pick_from_gallery">从相册选择</string>
+    <string name="crop">裁剪</string>
+    <string name="done_cropping">裁剪完成</string>
+    <string name="add_more">继续裁剪</string>
+    <string name="merge_and_upload">合并并上传</string>
+    <string name="analyzing">正在解析…</string>
+    <string name="retry">重试</string>
+    <string name="back">返回</string>
+    <string name="question_meaning">题目理解</string>
+    <string name="reference_answer">参考答案</string>
+    <string name="explanation">讲解</string>
+    <string name="vocabulary">词汇</string>
+    <string name="tap_to_speak">点击发音</string>
+    <string name="upload_failed">上传失败，请重试</string>
+    <string name="parse_failed">解析失败，请重试</string>
+    <string name="no_crops_yet">还没有裁剪区域，请先裁剪</string>
+    <string name="move_up">上移</string>
+    <string name="move_down">下移</string>
+    <string name="delete">删除</string>
+</resources>
