@@ -33,9 +33,10 @@ fun CaptureScreen(
     val galleryMultiLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris: List<Uri> ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
         if (uris.size == 1) {
             onImageSelected(uris.first())
-        } else if (uris.isNotEmpty()) {
+        } else {
             onMultipleImagesSelected(uris)
         }
     }

@@ -36,13 +36,18 @@ fun HomeworkApp() {
                 onImageSelected = { uri ->
                     selectedImageUri.clear()
                     selectedImageUri.add(uri)
-                    navController.navigate("crop")
+                    // 防止重复导航
+                    if (navController.currentDestination?.route == "capture") {
+                        navController.navigate("crop")
+                    }
                 },
                 onMultipleImagesSelected = { uris ->
                     cropSegments.addAll(uris)
                     originalUris.addAll(uris)
-                    navController.navigate("merge") {
-                        popUpTo("capture") { inclusive = false }
+                    if (navController.currentDestination?.route == "capture") {
+                        navController.navigate("merge") {
+                            popUpTo("capture") { inclusive = false }
+                        }
                     }
                 }
             )
@@ -58,15 +63,20 @@ fun HomeworkApp() {
                         originalUris.add(imageUri)
                     },
                     onSkip = {
-                        cropSegments.add(imageUri)
-                        originalUris.add(imageUri)
-                        navController.navigate("merge") {
-                            popUpTo("capture") { inclusive = false }
+                        // 只在还没导航走的时候执行
+                        if (navController.currentDestination?.route == "crop") {
+                            cropSegments.add(imageUri)
+                            originalUris.add(imageUri)
+                            navController.navigate("merge") {
+                                popUpTo("capture") { inclusive = false }
+                            }
                         }
                     },
                     onDone = {
-                        navController.navigate("merge") {
-                            popUpTo("capture") { inclusive = false }
+                        if (navController.currentDestination?.route == "crop") {
+                            navController.navigate("merge") {
+                                popUpTo("capture") { inclusive = false }
+                            }
                         }
                     },
                     onBack = { navController.popBackStack() }

@@ -38,6 +38,7 @@ class OpencodeClient:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 env=env,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -86,6 +87,10 @@ class OpencodeClient:
         if self.settings.proxy_all:
             env["ALL_PROXY"] = self.settings.proxy_all
             env["all_proxy"] = self.settings.proxy_all
+        # Force non-interactive behavior in daemon/server environments.
+        env.setdefault("CI", "1")
+        env.setdefault("NO_COLOR", "1")
+        env.setdefault("TERM", "dumb")
         return env
 
     def _raise_if_opencode_error(self, payload: Any) -> None:
