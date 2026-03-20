@@ -84,19 +84,14 @@
 ## Opencode Remote 图片触发规则（新增）
 当在项目根目录通过 opencode remote 进行交互时，若用户输入里包含“图片文件”（本地路径或上传图片），执行以下默认动作：
 
-1. 优先调用后端接口 `POST /v1/homework/parse-fill`，而不是只做文本 OCR 或只返回说明。
-2. 请求方式使用二进制图片 body（`content-type: image/jpeg|image/png|application/octet-stream`），不使用 base64 作为输入。
-3. 查询参数默认带 `expected_type=english`，除非用户明确要求其它学科。
-4. 返回时至少包含：
-   - 结构化解析结果（6 个目标字段）
-   - 回填图片落地路径（`filled_image_path`）
-5. 若后端服务未启动，先提示并给出最小启动命令：
-   - `cd backend && ./start_backend.sh`
-6. 若回填位置偏差，优先基于后端返回的最新落地图继续迭代，不改成手工口算答案。
+1. 直接触发 skills 链路，不要求先启动本项目后端服务。
+2. 优先使用已安装 OCR 相关 skills 进行识别与解析（当前已安装）：
+   - `ocr-document-processor`
+   - `paddleocr-text-recognition`
+   - `paddleocr-doc-parsing`
+3. 解析目标仍按英语作业场景输出结构化结果（题意、答案、讲解、词汇、点读单元、不确定性）。
+4. 若识别到是“看图填空”类题目，默认执行“按编号提取答案”的策略，而不是只抽取图片中文字。
+5. 仅当用户明确要求“走后端接口联调”时，才调用 `backend` API。
 
-推荐执行命令模板（供 agent 在 shell 中调用）：
-```bash
-curl -sS -X POST "http://127.0.0.1:8000/v1/homework/parse-fill?expected_type=english" \
-  -H "content-type: image/jpeg" \
-  --data-binary "@/absolute/path/to/image.jpg"
-```
+说明：
+- 该规则的目标是“收到图片立即触发 skills”，避免先做服务启动步骤。
