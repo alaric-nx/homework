@@ -30,7 +30,7 @@ backend/output/
 # Local env / secrets
 .env
 *.env
-backend/config.env
+!backend/config.env
 
 # Virtual environments
 .venv/
