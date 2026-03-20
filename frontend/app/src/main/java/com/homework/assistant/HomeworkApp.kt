@@ -34,11 +34,13 @@ fun HomeworkApp() {
         composable("capture") {
             CaptureScreen(
                 onImageSelected = { uri ->
-                    selectedImageUri.clear()
-                    selectedImageUri.add(uri)
-                    // 防止重复导航
+                    // 单图也直接进合并页，需要裁剪可在合并页操作
+                    cropSegments.add(uri)
+                    originalUris.add(uri)
                     if (navController.currentDestination?.route == "capture") {
-                        navController.navigate("crop")
+                        navController.navigate("merge") {
+                            popUpTo("capture") { inclusive = false }
+                        }
                     }
                 },
                 onMultipleImagesSelected = { uris ->

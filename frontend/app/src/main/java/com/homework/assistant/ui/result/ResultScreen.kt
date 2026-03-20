@@ -37,6 +37,10 @@ fun ResultScreen(
 ) {
     val context = LocalContext.current
     val ttsManager = (context.applicationContext as HomeworkApplication).ttsManager
+    // 用 Activity context 初始化 TTS（比 Application context 兼容性更好）
+    LaunchedEffect(Unit) {
+        ttsManager.ensureInit(context)
+    }
     val result = ResultHolder.latestResult
     val filledImageBase64 = ResultHolder.filledImageBase64
     val filledBitmap = remember(filledImageBase64) {
