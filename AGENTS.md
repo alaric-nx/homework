@@ -89,9 +89,12 @@
    - `ocr-document-processor`
    - `paddleocr-text-recognition`
    - `paddleocr-doc-parsing`
+   - `discord-homework-auto`（Discord 场景优先）
 3. 解析目标仍按英语作业场景输出结构化结果（题意、答案、讲解、词汇、点读单元、不确定性）。
 4. 若识别到是“看图填空”类题目，默认执行“按编号提取答案”的策略，而不是只抽取图片中文字。
 5. 仅当用户明确要求“走后端接口联调”时，才调用 `backend` API。
 
 说明：
 - 该规则的目标是“收到图片立即触发 skills”，避免先做服务启动步骤。
+- Discord 场景推荐命令：
+  - `python .agents/skills/discord-homework-auto/scripts/discord_homework_parse_fill.py --image "<IMAGE_PATH>"`
