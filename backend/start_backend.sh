@@ -9,6 +9,11 @@ if [[ -f "./config.env" ]]; then
 else
   CONFIG_FILE="${BACKEND_DIR}/config.env"
 fi
+if [[ -f "./.env" ]]; then
+  DOTENV_FILE="./.env"
+else
+  DOTENV_FILE="${BACKEND_DIR}/.env"
+fi
 
 if [[ -f "${CONFIG_FILE}" ]]; then
   set -a
@@ -17,6 +22,14 @@ if [[ -f "${CONFIG_FILE}" ]]; then
   set +a
 else
   echo "Config file not found, start with defaults: ${CONFIG_FILE}"
+fi
+
+# Higher priority local overrides.
+if [[ -f "${DOTENV_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${DOTENV_FILE}"
+  set +a
 fi
 
 cd "${BACKEND_DIR}"

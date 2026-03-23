@@ -198,10 +198,13 @@ fun HomeworkApp() {
                             app.taskRepository.insert(task)
                             UploadWorker.enqueue(context, taskId)
                             clearAll()
-                            // 跳到任务列表
+                            // 先清栈回 capture，再切到任务列表
                             navController.navigate("taskList") {
-                                popUpTo("capture") { inclusive = false }
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
                                 launchSingleTop = true
+                                restoreState = true
                             }
                         }
                     },
