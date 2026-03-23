@@ -61,7 +61,7 @@ class ErrorResponse(BaseModel):
 
 class OCRBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    text: str = Field(min_length=1)
+    text: str = ""
     bbox: list[float] | None = None
     polygon: list[list[float]] = Field(default_factory=list)
     label: str | None = None

@@ -243,8 +243,8 @@ class PaddleCloudOCRProvider:
                 if not isinstance(block, dict):
                     continue
                 text = block.get("block_content")
-                if not isinstance(text, str) or not text.strip():
-                    continue
+                if not isinstance(text, str):
+                    text = ""
                 bbox = block.get("block_bbox")
                 polygon = block.get("block_polygon_points")
                 order_value = block.get("block_order")

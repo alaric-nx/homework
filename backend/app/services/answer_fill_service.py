@@ -108,72 +108,53 @@ class AnswerFillService:
         if not ocr_result or not getattr(ocr_result, "blocks", None):
             return {}
 
-        numbered_candidates: dict[int, tuple[int, int, int, int, int, int]] = {}
-        # (score_order, -width, x, y, w, h)
+        mapped: dict[int, tuple[int, int, int, int]] = {}
         row_candidates: list[tuple[int, int, int, int]] = []
+        numbered_candidates: dict[int, tuple[int, int, int, int, int, int]] = {}
+        # value: (order_score, -line_w, x, y, w, h)
 
-        for block in ocr_result.blocks or []:
-            bbox = self._block_bbox(block)
-            text = (getattr(block, "text", "") or "").strip()
-            if bbox is None or not text:
+        for line_text, bbox, order_score in self._iter_ocr_rows(ocr_result):
+            x, y, w, h = bbox
+            line_box = self._estimate_write_box_from_line(line_text, bbox, image_w)
+            if line_box is None:
                 continue
-            bx, by, bw, bh = bbox
-            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-            if not lines:
+
+            if "_" in line_text:
+                row_candidates.append(line_box)
+
+            num_match = re.match(r"^\s*(\d{1,2})[\.\)\-:]?\s+.+$", line_text)
+            if not num_match:
                 continue
-            per_h = max(12.0, bh / max(1, len(lines)))
-            order_score = (
-                int(getattr(block, "order", 10**6))
-                if getattr(block, "order", None) is not None
-                else 10**6
+            num = int(num_match.group(1))
+            if num not in answers:
+                continue
+            candidate = (
+                order_score,
+                -line_box[2],
+                line_box[0],
+                line_box[1],
+                line_box[2],
+                line_box[3],
             )
+            prev = numbered_candidates.get(num)
+            if prev is None or candidate < prev:
+                numbered_candidates[num] = candidate
 
-            for i, line in enumerate(lines):
-                row_y = int(by + i * per_h + per_h * 0.45)
-                start_x = int(bx + min(140, bw * 0.32))
-                line_w = int(max(70, bw - (start_x - bx) - bw * 0.06))
-                line_h = int(max(14, per_h * 0.55))
-                placement = (
-                    max(0, start_x),
-                    max(0, row_y),
-                    max(60, min(line_w, image_w - max(0, start_x) - 4)),
-                    line_h,
-                )
-
-                num_match = re.match(r"^\s*(\d{1,2})[\.\)\-:]?\s+.+$", line)
-                if num_match:
-                    num = int(num_match.group(1))
-                    if num in answers:
-                        candidate = (
-                            order_score,
-                            -placement[2],
-                            placement[0],
-                            placement[1],
-                            placement[2],
-                            placement[3],
-                        )
-                        prev = numbered_candidates.get(num)
-                        if prev is None or candidate < prev:
-                            numbered_candidates[num] = candidate
-
-                if "_" in line:
-                    row_candidates.append(placement)
-
-        mapped: dict[int, tuple[int, int, int, int]] = {
-            num: (c[2], c[3], c[4], c[5]) for num, c in numbered_candidates.items()
-        }
-
+        mapped.update({k: (v[2], v[3], v[4], v[5]) for k, v in numbered_candidates.items()})
         if len(mapped) >= len(answers):
             return mapped
 
-        # 无编号/编号不足时：使用 OCR 下划线行按垂直顺序补齐
-        row_candidates = self._dedupe_rows_by_y(row_candidates)
-        if row_candidates:
-            unused_rows = [r for r in sorted(row_candidates, key=lambda r: r[1])]
+        # 编号不足：用 OCR 行按阅读顺序补齐
+        for row in self._dedupe_rows_by_y(row_candidates):
+            # 若和已映射题目几乎同一行同列，跳过
+            if any(abs(row[1] - ex[1]) <= 12 and abs(row[0] - ex[0]) <= 40 for ex in mapped.values()):
+                continue
             for num in sorted(answers.keys()):
-                if num in mapped or not unused_rows:
-                    continue
-                mapped[num] = unused_rows.pop(0)
+                if num not in mapped:
+                    mapped[num] = row
+                    break
+            if len(mapped) >= len(answers):
+                break
         return mapped
 
     def _build_ratio_line_map(
@@ -220,12 +201,64 @@ class AnswerFillService:
                 continue
             px, py, pw, ph = out[-1]
             x, y, w, h = row
-            if abs(y - py) <= 14:
+            # 仅在同列且同一行附近才合并，避免左右列同 y 被误合并
+            if abs(y - py) <= 14 and abs(x - px) <= 120:
                 if w > pw:
                     out[-1] = row
             else:
                 out.append(row)
         return out
+
+    def _iter_ocr_rows(self, ocr_result):
+        for block in ocr_result.blocks or []:
+            bbox = self._block_bbox(block)
+            if bbox is None:
+                continue
+            text = (getattr(block, "text", "") or "").strip()
+            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+            # 空文本块也保留一行，用于兜底定位
+            if not lines:
+                lines = ["___"]
+            bx, by, bw, bh = bbox
+            per_h = max(12.0, bh / max(1, len(lines)))
+            order_score = (
+                int(getattr(block, "order", 10**6))
+                if getattr(block, "order", None) is not None
+                else 10**6
+            )
+            for i, line_text in enumerate(lines):
+                row_y = int(by + i * per_h + per_h * 0.35)
+                row_bbox = (int(bx), row_y, int(max(40, bw)), int(max(12, per_h * 0.75)))
+                yield line_text, row_bbox, order_score * 10 + i
+
+    def _estimate_write_box_from_line(
+        self,
+        line_text: str,
+        row_bbox: tuple[int, int, int, int],
+        image_w: int,
+    ) -> tuple[int, int, int, int] | None:
+        x, y, w, h = row_bbox
+        if w <= 20:
+            return None
+
+        # 优先按下划线位置估计答案起点；没有下划线则按“编号后”估计
+        idx_blank = line_text.find("_")
+        if idx_blank >= 0:
+            ratio = idx_blank / max(1, len(line_text))
+            start_x = int(x + w * max(0.18, min(0.85, ratio - 0.02)))
+        else:
+            m = re.match(r"^\s*\d{1,2}[\.\)\-:]?\s*", line_text)
+            if m:
+                ratio = len(m.group(0)) / max(1, len(line_text))
+                start_x = int(x + w * max(0.2, min(0.7, ratio + 0.05)))
+            else:
+                start_x = int(x + w * 0.25)
+
+        line_w = int(max(70, w - (start_x - x) - 8))
+        start_x = max(0, min(start_x, image_w - 10))
+        line_w = max(50, min(line_w, image_w - start_x - 4))
+        line_h = max(14, h)
+        return (start_x, y, line_w, line_h)
 
     def _write_output_file(self, image_bytes: bytes) -> Path:
         output_dir = Path.cwd() / "output"
@@ -255,134 +288,6 @@ class AnswerFillService:
         debug_path = (output_dir / f"filled-debug-{ts}.jpg").resolve()
         overlay.save(debug_path, format="JPEG", quality=90)
 
-    def _detect_answer_lines(self, image) -> dict[str, list[tuple[int, int, int, int]]]:
-        """
-        Detect answer blank lines from the lower-half worksheet area.
-        Returns {"left": [(x,y,w,h)...], "right": [...]}, both sorted by y.
-        """
-        try:
-            import cv2
-            import numpy as np
-        except Exception:
-            return {"left": [], "right": []}
-
-        gray = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
-        h, w = gray.shape[:2]
-        roi_top = int(h * 0.66)
-        roi = gray[roi_top:, :]
-
-        # Highlight dark horizontal strokes.
-        bw = cv2.threshold(roi, 180, 255, cv2.THRESH_BINARY_INV)[1]
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(24, w // 20), 1))
-        horiz = cv2.morphologyEx(bw, cv2.MORPH_OPEN, kernel)
-
-        contours, _ = cv2.findContours(
-            horiz, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
-        raw_lines: list[tuple[int, int, int, int]] = []
-        for c in contours:
-            x, y, ww, hh = cv2.boundingRect(c)
-            # Keep likely answer lines; reject short fragments and thick blocks.
-            if ww < int(w * 0.14) or ww > int(w * 0.38):
-                continue
-            if hh > max(9, int(h * 0.01)):
-                continue
-            abs_y = y + roi_top
-            if abs_y < int(h * 0.68):
-                continue
-            raw_lines.append((x, abs_y, ww, hh))
-
-        # Merge nearly duplicated detections by y/x proximity.
-        raw_lines.sort(key=lambda t: (t[1], t[0]))
-        merged: list[tuple[int, int, int, int]] = []
-        for ln in raw_lines:
-            if not merged:
-                merged.append(ln)
-                continue
-            px, py, pw, ph = merged[-1]
-            x, y, ww, hh = ln
-            if abs(y - py) <= 6 and abs(x - px) <= 40:
-                # keep longer one
-                merged[-1] = (x, y, ww, hh) if ww > pw else merged[-1]
-            else:
-                merged.append(ln)
-
-        # Split to left/right columns by center x with coarse x-range filtering.
-        mid_x = w // 2
-        left = [
-            ln
-            for ln in merged
-            if ln[0] + ln[2] // 2 < mid_x
-            and ln[0] > int(w * 0.06)
-            and ln[0] < int(w * 0.45)
-        ]
-        right = [
-            ln
-            for ln in merged
-            if ln[0] + ln[2] // 2 >= mid_x
-            and ln[0] > int(w * 0.48)
-            and ln[0] < int(w * 0.92)
-        ]
-        left = self._collapse_same_row_lines(left)
-        right = self._collapse_same_row_lines(right)
-
-        left = self._normalize_line_count(left, count=5)
-        right = self._normalize_line_count(right, count=4)
-        logger.debug("answer_line_detect left=%s right=%s", left, right)
-        return {"left": left, "right": right}
-
-    def _collapse_same_row_lines(
-        self, lines: list[tuple[int, int, int, int]]
-    ) -> list[tuple[int, int, int, int]]:
-        """
-        In one answer row there can be multiple underline segments.
-        Cluster by y and keep the longest segment (main writing line) in each row.
-        """
-        if not lines:
-            return []
-        lines = sorted(lines, key=lambda t: t[1])
-        clusters: list[list[tuple[int, int, int, int]]] = []
-        for ln in lines:
-            if not clusters:
-                clusters.append([ln])
-                continue
-            _, last_y, _, _ = clusters[-1][-1]
-            if abs(ln[1] - last_y) <= 14:
-                clusters[-1].append(ln)
-            else:
-                clusters.append([ln])
-
-        collapsed: list[tuple[int, int, int, int]] = []
-        for cluster in clusters:
-            # choose longest line segment in this row as primary writing area
-            best = max(cluster, key=lambda t: t[2])
-            collapsed.append(best)
-        collapsed.sort(key=lambda t: t[1])
-        return collapsed
-
-    def _normalize_line_count(
-        self, lines: list[tuple[int, int, int, int]], count: int
-    ) -> list[tuple[int, int, int, int]]:
-        if not lines:
-            return []
-        lines = sorted(lines, key=lambda t: t[1])[:count]
-        if len(lines) >= count:
-            return lines
-
-        # Fill missing rows by interpolating vertical gaps from existing detections.
-        ys = [y for _, y, _, _ in lines]
-        if len(ys) >= 2:
-            gaps = [ys[i + 1] - ys[i] for i in range(len(ys) - 1)]
-            gap = int(sum(gaps) / len(gaps))
-            if gap < 8:
-                gap = 8
-        else:
-            gap = 52
-        x, y, w, h = lines[-1]
-        while len(lines) < count:
-            y += gap
-            lines.append((x, y, w, h))
-        return lines
 
     def _draw_text_fit_line(
         self,
@@ -393,28 +298,27 @@ class AnswerFillService:
         image_h: int,
         base_font_size: int,
     ) -> None:
-        from PIL import ImageFont
+        x, y, w, h = line
+        target_w = max(40, w - 8)
+        target_h = max(14, int(h * 1.2))
+        font_size = max(12, min(base_font_size, int(target_h * 1.25)))
 
-        x, y, w, _ = line
-        target_w = max(40, w - 10)
-        font_size = base_font_size
+        font = self._load_font(font_size)
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
 
-        # Fit text width to line width.
-        while font_size >= 12:
+        # 宽高双约束自适应
+        while font_size > 10 and (tw > target_w or th > target_h):
+            font_size -= 1
             font = self._load_font(font_size)
             bbox = draw.textbbox((0, 0), text, font=font)
             tw = bbox[2] - bbox[0]
-            if tw <= target_w:
-                break
-            font_size -= 1
-        else:
-            font = self._load_font(12)
-            bbox = draw.textbbox((0, 0), text, font=font)
+            th = bbox[3] - bbox[1]
 
-        tw = bbox[2] - bbox[0]
-        th = bbox[3] - bbox[1]
-        x_text = x + max(4, (target_w - tw) // 2)
-        y_text = max(0, y - int(th * 0.85))
+        x_text = x + max(2, (target_w - tw) // 2)
+        # 文本落在下划线略上方，避免压线
+        y_text = max(0, y - th - max(2, int(h * 0.25)))
         draw.text((x_text, y_text), text, fill=self.FILL_TEXT_COLOR, font=font)
 
     def _load_font(self, size: int):
@@ -426,145 +330,6 @@ class AnswerFillService:
             except Exception:
                 continue
         return ImageFont.load_default()
-
-    def _resolve_line_map(
-        self,
-        detected: dict[str, list[tuple[int, int, int, int]]],
-        ocr_result,
-        image_w: int,
-    ) -> dict[int, tuple[int, int, int, int]]:
-        left_order = [1, 3, 5, 7, 9]
-        right_order = [2, 4, 6, 8]
-        left_lines = list(detected.get("left", []))
-        right_lines = list(detected.get("right", []))
-
-        if not ocr_result or not getattr(ocr_result, "blocks", None):
-            return self._assign_lines_by_order(
-                left_order, right_order, left_lines, right_lines
-            )
-
-        anchors = self._extract_number_anchors(ocr_result, image_w)
-        logger.info(
-            "answer_fill_number_anchors left=%s right=%s",
-            anchors.get("left"),
-            anchors.get("right"),
-        )
-
-        has_anchors = bool(anchors.get("left") or anchors.get("right"))
-        if not has_anchors:
-            return self._assign_lines_by_order(
-                left_order, right_order, left_lines, right_lines
-            )
-
-        line_map: dict[int, tuple[int, int, int, int]] = {}
-        if left_lines:
-            line_map.update(
-                self._assign_lines_with_anchors(
-                    left_order, left_lines, anchors.get("left", {})
-                )
-            )
-        if right_lines:
-            line_map.update(
-                self._assign_lines_with_anchors(
-                    right_order, right_lines, anchors.get("right", {})
-                )
-            )
-
-        remaining_left = [n for n in left_order if n not in line_map]
-        remaining_right = [n for n in right_order if n not in line_map]
-        if remaining_left or remaining_right:
-            fallback_map = self._assign_lines_by_order(
-                remaining_left,
-                remaining_right,
-                [ln for ln in left_lines if ln not in line_map.values()],
-                [ln for ln in right_lines if ln not in line_map.values()],
-            )
-            line_map.update(fallback_map)
-
-        return line_map
-
-    def _assign_lines_by_order(
-        self,
-        left_order: list[int],
-        right_order: list[int],
-        left_lines: list[tuple[int, int, int, int]],
-        right_lines: list[tuple[int, int, int, int]],
-    ) -> dict[int, tuple[int, int, int, int]]:
-        mapping: dict[int, tuple[int, int, int, int]] = {}
-        for i, num in enumerate(left_order):
-            if i < len(left_lines):
-                mapping[num] = left_lines[i]
-        for i, num in enumerate(right_order):
-            if i < len(right_lines):
-                mapping[num] = right_lines[i]
-        return mapping
-
-    def _assign_lines_with_anchors(
-        self,
-        numbers: list[int],
-        lines: list[tuple[int, int, int, int]],
-        anchors: dict[int, list[tuple[float, float]]],
-    ) -> dict[int, tuple[int, int, int, int]]:
-        if not lines:
-            return {}
-        ys = sorted([y for _, y, _, _ in lines])
-        if len(ys) >= 2:
-            gaps = [ys[i + 1] - ys[i] for i in range(len(ys) - 1)]
-            avg_gap = sum(gaps) / len(gaps)
-            tol = max(40.0, avg_gap * 1.5)
-        else:
-            tol = 60.0
-        min_y = ys[0] - tol
-        max_y = ys[-1] + tol
-        used = set()
-        mapping: dict[int, tuple[int, int, int, int]] = {}
-        for num in numbers:
-            candidates = anchors.get(num, [])
-            if not candidates:
-                continue
-            best = None
-            for anchor_y, _ in candidates:
-                if anchor_y < min_y or anchor_y > max_y:
-                    continue
-                for idx, ln in enumerate(lines):
-                    if idx in used:
-                        continue
-                    _, y, _, _ = ln
-                    dist = abs(anchor_y - y)
-                    if best is None or dist < best[0]:
-                        best = (dist, idx)
-            if best is None:
-                continue
-            _, idx = best
-            used.add(idx)
-            mapping[num] = lines[idx]
-        return mapping
-
-    def _extract_number_anchors(
-        self, ocr_result, image_w: int
-    ) -> dict[str, dict[int, list[tuple[float, float]]]]:
-        import re
-
-        left: dict[int, list[tuple[float, float]]] = {}
-        right: dict[int, list[tuple[float, float]]] = {}
-        mid_x = image_w / 2
-
-        for block in ocr_result.blocks or []:
-            text = getattr(block, "text", "")
-            if not text:
-                continue
-            bbox = self._block_bbox(block)
-            if bbox is None:
-                continue
-            x, y, w, h = bbox
-            cx = x + w / 2
-            cy = y + h / 2
-            for match in re.findall(r"\b([1-9])\b", text):
-                num = int(match)
-                target = left if cx < mid_x else right
-                target.setdefault(num, []).append((cy, cx))
-
-        return {"left": left, "right": right}
 
     def _block_bbox(self, block) -> tuple[float, float, float, float] | None:
         bbox = getattr(block, "bbox", None)
