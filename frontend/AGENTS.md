@@ -6,8 +6,9 @@
 - 裁剪（合并页内单张裁剪）
 - 多图排序与合并
 - 上传前图片压缩
-- 上传后端
-- 展示解析结果（含填写后题图）
+- 异步提交后端（WorkManager 后台执行）
+- 任务列表（历史记录、重试、删除）
+- 展示解析结果（含填写后题图缩放）
 - 点击词/句本地 TTS 发音
 
 ## 技术约束
@@ -18,6 +19,8 @@
 - 网络：OkHttp，SSL 证书忽略，readTimeout 120s
 - 后端地址：`https://hs.for2.top:44443`
 - API：`POST /v1/homework/parse-fill?expected_type=english`，Content-Type: image/jpeg，raw body
+- 数据库：Room（任务持久化，最多 10 条，自动淘汰最早记录）
+- 后台任务：WorkManager（UploadWorker，自动重试 1 次 EXPONENTIAL backoff，失败后手动重试）
 
 ## 功能状态
 - [x] 前端技术路线已确定（Kotlin 原生）
@@ -28,7 +31,12 @@
 - [x] 上传前图片压缩（长边 1920px + JPEG 85%）
 - [x] 上传接口对接（ApiResponse 外层包装、unit_type/reason 字段映射）
 - [x] 结果页（题意、答案、讲解、词汇、点读、填写后题图 base64）
-- [x] "再来一题"状态完整清理（cropSegments + originalUris + ResultHolder）
+- [x] 填写后题图双指缩放拖动（clipToBounds 限制框内，1x~5x）
+- [x] 异步任务队列（WorkManager 后台执行，息屏/切后台不中断）
+- [x] 任务列表页（历史记录，最多 10 条，单删/全删/手动重试）
+- [x] 底部导航栏（拍题 / 任务列表双 Tab）
+- [x] 结果数据持久化（Room 数据库，按 taskId 读取）
+- [x] 多任务并行执行（每个 Worker 独立 enqueue）
 
 ## 与后端接口约定
 - 入参：合并压缩后的题图（image/jpeg raw body）
@@ -37,13 +45,19 @@
 - uncertainty 字段：`reason`（非 warning）
 
 ## 关键文件
-- `HomeworkApp.kt`：导航与状态管理
+- `HomeworkApp.kt`：导航（底部 Tab）与状态管理，异步任务提交
 - `CaptureScreen.kt`：拍照/选图
 - `CropScreen.kt`：裁剪（坐标映射 imageRect）
-- `MergeScreen.kt`：排序、合并、预览、压缩上传
-- `ResultScreen.kt`：结果展示 + 填写后题图 + TTS
+- `MergeScreen.kt`：排序、合并、预览，提交任务（不再同步等待）
+- `ResultScreen.kt`：结果展示 + 填写后题图缩放 + TTS（从 Room 按 taskId 读取）
+- `TaskListScreen.kt`：任务列表（状态展示、重试、单删、全删）
 - `HomeworkModels.kt`：数据模型（ApiResponse/ParseResponse/SpeakUnit/Uncertainty）
 - `HomeworkApi.kt`：网络请求（SSL 忽略、raw body）
 - `TtsManager.kt`：TTS 管理（延迟初始化、多引擎回退）
 - `ImageUtils.kt`：图片工具（裁剪、合并、压缩）
-- `ResultHolder.kt`：结果传递
+- `TaskEntity.kt`：Room Entity（任务持久化）
+- `TaskDao.kt`：Room DAO
+- `AppDatabase.kt`：Room Database 单例
+- `TaskRepository.kt`：任务仓库（CRUD + 超限淘汰）
+- `UploadWorker.kt`：WorkManager Worker（后台上传、自动重试 1 次）
+- `HomeworkApplication.kt`：Application（TTS + Database + TaskRepository）

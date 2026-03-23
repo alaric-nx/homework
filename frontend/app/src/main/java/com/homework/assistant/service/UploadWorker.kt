@@ -36,7 +36,7 @@ class UploadWorker(
                 .build()
 
             WorkManager.getInstance(context)
-                .enqueueUniqueWork("upload_$taskId", ExistingWorkPolicy.KEEP, request)
+                .enqueue(request)
         }
     }
 

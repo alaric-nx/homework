@@ -41,7 +41,7 @@
 - [x] 明确前端为 Kotlin 原生
 - [x] 明确后端暂不做完整性强校验
 - [x] 定义前端交互细节（裁剪页、合并页、结果页）
-- [ ] 定义异常流程（上传失败、解析失败、超时重试）
+- [x] 定义异常流程（上传失败、解析失败、超时重试）
 
 ### B. 后端能力（Python + opencode + skills）
 - [x] 明确后端总体方向（Python + opencode）
@@ -63,6 +63,11 @@
 - [x] 上传前图片压缩（长边 1920px + JPEG 85%）
 - [x] 后端 API 对接（parse-fill 接口、SSL 忽略、ApiResponse 字段映射）
 - [x] "再来一题"状态完整清理（含 ResultHolder）
+- [x] 异步任务队列（WorkManager，后台上传不受息屏/切后台影响）
+- [x] 任务列表页（历史记录，最多保留 10 条，单删/全删/手动重试）
+- [x] 底部导航栏（拍题 / 任务列表双 Tab）
+- [x] 填写后题图双指缩放拖动（clipToBounds 限制框内）
+- [x] 结果数据持久化（Room 数据库，替代 ResultHolder 内存传递）
 
 ### D. 当前不做 / 后续再做
 - [x] 暂不做语文 skills
@@ -86,6 +91,18 @@
 - 冲突处理：OCR 与图片冲突时，以图片语义为准。
 - 编号题策略：仅当识别到编号时按编号顺序组织答案；无编号题不强制排序。
 - 当前 OCR 来源：PaddleCloud 文档解析返回结构，优先取 `layoutParsingResults[*].markdown.text`，并结合 `parsing_res_list` 提供块级辅助信息。
+
+## 回写策略（当前生效）
+- 回写阶段不再调用大模型；仅消费 parse 阶段返回的 `reference_answer` / `answer_placements`。
+- 槽位优先级：`answer_placements` 直写优先，OCR/规则映射作为兜底。
+- 文字定位采用“布局自适应校准层”：基于候选框估计列结构、行高、行距后动态计算 `x/y` 偏移与有效行高。
+- 小样本门控：当候选行不足时自动回退默认参数，避免误校准。
+
+## 配置文件优先级（backend）
+- 通用配置：`backend/config.env`（可提交）
+- 本地覆盖：`backend/.env`（同 key 优先级高于 `config.env`，不提交 Git）
+- 进程环境变量优先级最高（高于 `.env`）
+- `backend/start_backend.sh` 启动顺序：先加载 `config.env`，再加载 `.env` 覆盖
 
 ## 子目录说明
 - 前端说明：`/frontend/AGENTS.md`

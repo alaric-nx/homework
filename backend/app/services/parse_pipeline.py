@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 class ParsePipeline:
+    TOTAL_BUDGET_SEC = 35.0
+    MIN_RETRY_REMAINING_SEC = 8.0
+
     def __init__(self, opencode_client: OpencodeClient, settings: Settings) -> None:
         self.ocr_skill = OCRSkill(settings)
         self.schema_guard = ResponseSchemaGuard()
@@ -55,6 +58,127 @@ class ParsePipeline:
                     p["font_size_ratio"] = None
                 normalized.append(p)
             out["answer_placements"] = normalized
+        return out
+
+    def _has_meaningful_reference_answer(self, reference_answer: Any) -> bool:
+        if not isinstance(reference_answer, str):
+            return False
+        text = reference_answer.strip()
+        if not text:
+            return False
+        if "后端占位答案" in text:
+            return False
+        return True
+
+    def _has_valid_placements(self, placements: Any) -> bool:
+        if not isinstance(placements, list):
+            return False
+        for item in placements:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text", "")).strip()
+            bbox = item.get("bbox_norm")
+            if text and isinstance(bbox, list) and len(bbox) == 4:
+                return True
+        return False
+
+    def _should_retry_strict(
+        self,
+        normalized_candidate: Any,
+        first_error: AppError,
+        ocr_result: OCRResult,
+        elapsed_sec: float,
+    ) -> bool:
+        remaining = self.TOTAL_BUDGET_SEC - elapsed_sec
+        if remaining < self.MIN_RETRY_REMAINING_SEC:
+            return False
+
+        if not isinstance(normalized_candidate, dict):
+            return True
+
+        required_keys = {
+            "question_meaning_zh",
+            "reference_answer",
+            "explanation_zh",
+            "key_vocabulary",
+            "speak_units",
+            "uncertainty",
+        }
+        if not required_keys.issubset(normalized_candidate.keys()):
+            return True
+
+        has_ref = self._has_meaningful_reference_answer(
+            normalized_candidate.get("reference_answer")
+        )
+        has_placements = self._has_valid_placements(
+            normalized_candidate.get("answer_placements")
+        )
+        if not has_ref:
+            return True
+        if not has_placements and len((ocr_result.text or "").strip()) < 40:
+            return True
+
+        detail = (first_error.detail or "").lower()
+        hard_fail_tokens = (
+            "field required",
+            "missing",
+            "cannot be parsed",
+            "json",
+        )
+        if any(token in detail for token in hard_fail_tokens):
+            return True
+        return False
+
+    def _salvage_candidate(
+        self, normalized_candidate: Any, ocr_result: OCRResult, reason: str
+    ) -> dict[str, Any]:
+        base = self.english_solver.fallback_output(ocr_result, reason=reason)
+        if not isinstance(normalized_candidate, dict):
+            return base
+
+        out = dict(base)
+        for key in ("question_meaning_zh", "reference_answer", "explanation_zh"):
+            val = normalized_candidate.get(key)
+            if isinstance(val, str) and val.strip():
+                out[key] = val.strip()
+
+        kv = normalized_candidate.get("key_vocabulary")
+        if isinstance(kv, list):
+            out["key_vocabulary"] = kv
+        su = normalized_candidate.get("speak_units")
+        if isinstance(su, list):
+            out["speak_units"] = su
+        unc = normalized_candidate.get("uncertainty")
+        if isinstance(unc, dict):
+            out["uncertainty"] = unc
+
+        placements = normalized_candidate.get("answer_placements")
+        if isinstance(placements, list):
+            cleaned: list[dict[str, Any]] = []
+            for item in placements:
+                if not isinstance(item, dict):
+                    continue
+                num = item.get("number")
+                text = item.get("text")
+                bbox = item.get("bbox_norm")
+                if not isinstance(num, int):
+                    continue
+                if not isinstance(text, str) or not text.strip():
+                    continue
+                if not isinstance(bbox, list) or len(bbox) != 4:
+                    continue
+                fsr = item.get("font_size_ratio")
+                if not isinstance(fsr, (int, float)) or fsr <= 0:
+                    fsr = None
+                cleaned.append(
+                    {
+                        "number": num,
+                        "text": text.strip(),
+                        "bbox_norm": bbox,
+                        "font_size_ratio": fsr,
+                    }
+                )
+            out["answer_placements"] = cleaned
         return out
 
     async def run(
@@ -107,10 +231,9 @@ class ParsePipeline:
                 ocr_result, reason=exc.detail
             )
 
+        normalized_candidate = self._normalize_candidate(candidate)
         try:
-            validated = self.schema_guard.validate_payload(
-                self._normalize_candidate(candidate)
-            )
+            validated = self.schema_guard.validate_payload(normalized_candidate)
             logger.info(
                 "pipeline_step schema_validate elapsed=%.2fs",
                 time.perf_counter() - start_ts,
@@ -125,6 +248,29 @@ class ParsePipeline:
                 validated = self.schema_guard.validate_payload(fallback)
                 logger.info(
                     "pipeline_step schema_validate_fallback elapsed=%.2fs",
+                    time.perf_counter() - start_ts,
+                )
+                return self._attach_ocr(validated, ocr_result)
+            elapsed = time.perf_counter() - start_ts
+            if not self._should_retry_strict(
+                normalized_candidate,
+                first_error,
+                ocr_result,
+                elapsed_sec=elapsed,
+            ):
+                logger.warning(
+                    "schema_validate_skip_strict_retry elapsed=%.2fs detail=%s",
+                    elapsed,
+                    first_error.detail,
+                )
+                salvaged = self._salvage_candidate(
+                    normalized_candidate,
+                    ocr_result,
+                    reason="模型输出结构存在问题，已跳过严格重试并进行本地修复。",
+                )
+                validated = self.schema_guard.validate_payload(salvaged)
+                logger.info(
+                    "pipeline_step schema_validate_skip_retry_fallback elapsed=%.2fs",
                     time.perf_counter() - start_ts,
                 )
                 return self._attach_ocr(validated, ocr_result)

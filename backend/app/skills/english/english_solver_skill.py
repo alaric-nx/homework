@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import logging
-import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -46,14 +44,6 @@ class EnglishSolverSkill:
         if not ocr_text:
             ocr_text = "[OCR为空]"
 
-        ordered_number_hints = self._extract_number_hints(ocr)
-        numbered_hint_text = (
-            "\n".join(f"{k}: {v}" for k, v in ordered_number_hints.items())
-            if ordered_number_hints
-            else "[无可用编号提示]"
-        )
-        block_preview = self._build_block_preview(ocr, max_items=20)
-
         return (
             "你是小学英语作业解析助手。\n"
             f"当前模式：{strict_flag}\n"
@@ -71,57 +61,7 @@ class EnglishSolverSkill:
             "11) 若题目含编号，请按检测到的编号顺序给答案；若无编号，请按题面阅读顺序给答案槽位编号（1,2,3...）。\n"
             "12) bbox_norm 是答案应回写区域的归一化框 [x0,y0,x1,y1]，相对于整张图，尽量贴近实际空白填写区，不要给过大的题图区框。\n"
             f"OCR全文如下：\n{ocr_text}\n\n"
-            f"OCR按编号整理（辅助）如下：\n{numbered_hint_text}\n\n"
-            f"OCR块预览（辅助）如下：\n{block_preview}\n"
         )
-
-    def _extract_number_hints(self, ocr: OCRResult) -> dict[int, str]:
-        hints: dict[int, str] = {}
-        lines: list[str] = []
-
-        for block in sorted(
-            ocr.blocks, key=lambda b: (b.order is None, b.order if b.order is not None else 10**9)
-        ):
-            text = (block.text or "").strip()
-            if text:
-                lines.extend(text.splitlines())
-
-        if ocr.text.strip():
-            lines.extend(ocr.text.splitlines())
-
-        # 支持 1 xx / 1. xx / 1) xx / 1- xx / 1: xx
-        line_pattern = re.compile(r"^\s*(\d{1,2})[\.\)\-:]?\s+(.+?)\s*$")
-        for raw in lines:
-            line = raw.strip()
-            if not line:
-                continue
-            m = line_pattern.match(line)
-            if not m:
-                continue
-            num = int(m.group(1))
-            if num <= 0 or num > 99:
-                continue
-            content = m.group(2).strip()
-            if content and num not in hints:
-                hints[num] = content
-
-        return dict(sorted(hints.items(), key=lambda item: item[0]))
-
-    def _build_block_preview(self, ocr: OCRResult, max_items: int) -> str:
-        if not ocr.blocks:
-            return "[]"
-        preview = []
-        for block in sorted(
-            ocr.blocks, key=lambda b: (b.order is None, b.order if b.order is not None else 10**9)
-        )[:max_items]:
-            preview.append(
-                {
-                    "order": block.order,
-                    "label": block.label,
-                    "text": block.text,
-                }
-            )
-        return json.dumps(preview, ensure_ascii=False)
 
     def fallback_output(
         self, ocr: OCRResult, reason: str | None = None

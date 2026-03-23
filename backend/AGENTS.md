@@ -35,6 +35,23 @@
 - OCR 结构来源：优先 `layoutParsingResults[*].markdown.text`，并抽取 `parsing_res_list` 的 `block_content/order/label` 作为辅助块信息。
 - 英语解题 prompt：包含原图（主证据）+ OCR 全文 + OCR 编号提示（仅检测到编号时排序）+ OCR 块预览。
 - 冲突原则：图片优先，OCR 仅辅助。
+- parse 阶段新增候选归一化：在 schema 校验前自动修正常见不规范输出（如 `reference_answer` list -> string、`font_size_ratio<=0 -> null`），降低整包 fallback 概率。
+
+## 回写与定位（当前生效）
+- 回写阶段不调用大模型；只使用 parse 结果。
+- 槽位优先级：`answer_placements` 直写优先，OCR/规则映射兜底。
+- 已移除 OpenCV 线检测依赖；定位基于 OCR/模型框融合与后处理。
+- 新增“布局自适应校准层”：
+  - 输入：最终候选框集合
+  - 估计：列结构、行高中位数、行距中位数、行密度
+  - 输出：按列动态 `left_ratio/top_ratio/baseline_pull/effective_h_cap`
+  - 门控：候选样本不足时回退默认参数
+
+## 环境与启动约定
+- 通用配置文件：`backend/config.env`
+- 本地覆盖文件：`backend/.env`（同 key 覆盖 `config.env`，不提交 Git）
+- 优先级：进程环境变量 > `.env` > `config.env`
+- `backend/start_backend.sh` 已按上述顺序加载配置
 
 ## 返回 JSON 目标字段
 - `question_meaning_zh`
