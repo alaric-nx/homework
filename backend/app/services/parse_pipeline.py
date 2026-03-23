@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
 from app.core.config import Settings
 from app.core.errors import AppError
@@ -26,6 +27,35 @@ class ParsePipeline:
     ) -> HomeworkParseResponse:
         payload.ocr_result = ocr_result
         return payload
+
+    def _normalize_candidate(self, candidate: Any) -> Any:
+        if not isinstance(candidate, dict):
+            return candidate
+
+        out = dict(candidate)
+        ref = out.get("reference_answer")
+        if isinstance(ref, list):
+            out["reference_answer"] = "\n".join(
+                str(x).strip() for x in ref if str(x).strip()
+            )
+
+        placements = out.get("answer_placements")
+        if isinstance(placements, list):
+            normalized: list[Any] = []
+            for item in placements:
+                if not isinstance(item, dict):
+                    normalized.append(item)
+                    continue
+                p = dict(item)
+                text = p.get("text")
+                if isinstance(text, list):
+                    p["text"] = " ".join(str(x).strip() for x in text if str(x).strip())
+                fsr = p.get("font_size_ratio")
+                if isinstance(fsr, (int, float)) and fsr <= 0:
+                    p["font_size_ratio"] = None
+                normalized.append(p)
+            out["answer_placements"] = normalized
+        return out
 
     async def run(
         self,
@@ -78,7 +108,9 @@ class ParsePipeline:
             )
 
         try:
-            validated = self.schema_guard.validate_payload(candidate)
+            validated = self.schema_guard.validate_payload(
+                self._normalize_candidate(candidate)
+            )
             logger.info(
                 "pipeline_step schema_validate elapsed=%.2fs",
                 time.perf_counter() - start_ts,
@@ -118,7 +150,9 @@ class ParsePipeline:
                 )
                 return self._attach_ocr(validated, ocr_result)
             try:
-                validated = self.schema_guard.validate_payload(candidate_retry)
+                validated = self.schema_guard.validate_payload(
+                    self._normalize_candidate(candidate_retry)
+                )
                 logger.info(
                     "pipeline_step schema_validate_retry elapsed=%.2fs",
                     time.perf_counter() - start_ts,

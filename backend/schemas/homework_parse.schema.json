@@ -91,7 +91,7 @@
           "number": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 9
+            "maximum": 99
           },
           "text": {
             "type": "string",

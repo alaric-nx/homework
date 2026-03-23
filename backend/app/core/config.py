@@ -3,6 +3,47 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
+
+
+def _load_env_file(
+    path: Path,
+    *,
+    overwrite: bool = False,
+    protected_keys: set[str] | None = None,
+) -> None:
+    if not path.exists() or not path.is_file():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip()
+        if (
+            (value.startswith('"') and value.endswith('"'))
+            or (value.startswith("'") and value.endswith("'"))
+        ):
+            value = value[1:-1]
+        if protected_keys and key in protected_keys:
+            continue
+        if overwrite:
+            os.environ[key] = value
+        else:
+            os.environ.setdefault(key, value)
+
+
+def _bootstrap_env() -> None:
+    backend_dir = Path(__file__).resolve().parents[2]
+    protected = set(os.environ.keys())
+    _load_env_file(backend_dir / "config.env", overwrite=False, protected_keys=protected)
+    # .env 与 config.env 同 key 时，.env 优先（但不覆盖系统已存在环境变量）
+    _load_env_file(backend_dir / ".env", overwrite=True, protected_keys=protected)
 
 @dataclass(frozen=True)
 class Settings:
@@ -29,6 +70,7 @@ class Settings:
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
+    _bootstrap_env()
     return Settings(
         app_name=os.getenv("HW_APP_NAME", "homework-backend"),
         app_env=os.getenv("HW_APP_ENV", "dev"),

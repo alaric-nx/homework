@@ -11,6 +11,8 @@
 .claude/
 .kiro/
 
+logs/
+
 # Android / Gradle (frontend)
 frontend/.gradle/
 frontend/.kotlin/

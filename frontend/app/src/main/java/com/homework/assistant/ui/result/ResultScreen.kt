@@ -4,6 +4,7 @@ import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,45 +14,65 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.google.gson.Gson
 import com.homework.assistant.HomeworkApplication
 import com.homework.assistant.R
 import com.homework.assistant.data.model.ParseResponse
 import com.homework.assistant.data.model.SpeakUnit
 import com.homework.assistant.data.model.VocabularyItem
-import com.homework.assistant.ui.merge.ResultHolder
+import com.homework.assistant.data.repository.TaskRepository
 
 /**
- * 结果展示页
- * 展示题意、答案、讲解、词汇、点读单元
+ * 结果展示页 — 从 Room 按 taskId 读取数据
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ResultScreen(
+    taskId: String,
     onStartOver: () -> Unit
 ) {
     val context = LocalContext.current
-    val ttsManager = (context.applicationContext as HomeworkApplication).ttsManager
-    // 用 Activity context 初始化 TTS（比 Application context 兼容性更好）
-    LaunchedEffect(Unit) {
-        ttsManager.ensureInit(context)
+    val app = context.applicationContext as HomeworkApplication
+    val ttsManager = app.ttsManager
+    val repo = remember { TaskRepository(context) }
+    val gson = remember { Gson() }
+
+    LaunchedEffect(Unit) { ttsManager.ensureInit(context) }
+
+    // 从 Room 加载任务
+    var result by remember { mutableStateOf<ParseResponse?>(null) }
+    var filledImageBase64 by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(taskId) {
+        val task = repo.getById(taskId)
+        if (task != null && task.resultJson != null) {
+            result = gson.fromJson(task.resultJson, ParseResponse::class.java)
+            filledImageBase64 = task.filledImageBase64
+        }
+        loading = false
     }
-    val result = ResultHolder.latestResult
-    val filledImageBase64 = ResultHolder.filledImageBase64
+
     val filteredSpeakUnits = remember(result) {
-        if (result == null) {
-            emptyList()
-        } else {
-            val vocabWords = result.key_vocabulary
+        if (result == null) emptyList()
+        else {
+            val vocabWords = result!!.key_vocabulary
                 .map { it.word.trim().lowercase() }
                 .filter { it.isNotEmpty() }
                 .toSet()
-            result.speak_units.filter { unit ->
+            result!!.speak_units.filter { unit ->
                 unit.type != "word" || unit.text.trim().lowercase() !in vocabWords
             }
         }
@@ -65,125 +86,111 @@ fun ResultScreen(
         }
     }
 
-    DisposableEffect(Unit) {
-        onDispose { ttsManager.stop() }
-    }
+    DisposableEffect(Unit) { onDispose { ttsManager.stop() } }
 
     Scaffold(
-        topBar = {
-            TopAppBar(title = { Text("解析结果") })
-        },
+        topBar = { TopAppBar(title = { Text("解析结果") }) },
         bottomBar = {
             Button(
                 onClick = onStartOver,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-                    .height(52.dp)
-            ) {
-                Text("再来一题")
-            }
+                modifier = Modifier.fillMaxWidth().padding(16.dp).height(52.dp)
+            ) { Text("再来一题") }
         }
     ) { padding ->
-        if (result == null) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("暂无结果")
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // 不确定性警告
-                if (result.uncertainty.requires_review && !result.uncertainty.warning.isNullOrEmpty()) {
-                    item {
-                        UncertaintyBanner(result.uncertainty.warning!!)
-                    }
+        when {
+            loading -> {
+                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
                 }
-
-                // 填写后的题图
-                if (filledBitmap != null) {
-                    item {
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text(
-                                    text = "填写后题图",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Image(
-                                    bitmap = filledBitmap.asImageBitmap(),
-                                    contentDescription = "填写后题图",
-                                    contentScale = ContentScale.FillWidth,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
+            }
+            result == null -> {
+                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                    Text("暂无结果")
+                }
+            }
+            else -> {
+                val r = result!!
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(padding),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    if (r.uncertainty.requires_review && !r.uncertainty.warning.isNullOrEmpty()) {
+                        item { UncertaintyBanner(r.uncertainty.warning!!) }
+                    }
+                    if (filledBitmap != null) {
+                        item { ZoomableFilledImage(filledBitmap) }
+                    }
+                    item { SectionCard(stringResource(R.string.question_meaning), r.question_meaning_zh) }
+                    item { SectionCard(stringResource(R.string.reference_answer), r.reference_answer) }
+                    item { SectionCard(stringResource(R.string.explanation), r.explanation_zh) }
+                    if (r.key_vocabulary.isNotEmpty()) {
+                        item {
+                            Text(stringResource(R.string.vocabulary),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold)
+                        }
+                        items(r.key_vocabulary) { vocab ->
+                            VocabularyCard(vocab, onSpeak = { ttsManager.speak(vocab.word) })
+                        }
+                    }
+                    if (filteredSpeakUnits.isNotEmpty()) {
+                        item {
+                            Text(stringResource(R.string.tap_to_speak),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold)
+                        }
+                        item {
+                            SpeakUnitsGrid(filteredSpeakUnits, onSpeak = { ttsManager.speak(it.text) })
                         }
                     }
                 }
+            }
+        }
+    }
+}
 
-                // 题目理解
-                item {
-                    SectionCard(
-                        title = stringResource(R.string.question_meaning),
-                        content = result.question_meaning_zh
-                    )
-                }
+@Composable
+private fun ZoomableFilledImage(bitmap: android.graphics.Bitmap) {
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    var containerSize by remember { mutableStateOf(IntSize.Zero) }
+    val imgRatio = bitmap.width.toFloat() / bitmap.height.toFloat()
 
-                // 参考答案
-                item {
-                    SectionCard(
-                        title = stringResource(R.string.reference_answer),
-                        content = result.reference_answer
-                    )
-                }
+    fun clampOffset(s: Float, o: Offset): Offset {
+        if (containerSize.width == 0 || containerSize.height == 0) return o
+        val cw = containerSize.width.toFloat()
+        val imgH = cw / imgRatio
+        val maxX = ((cw * s - cw) / 2f).coerceAtLeast(0f)
+        val maxY = ((imgH * s - imgH) / 2f).coerceAtLeast(0f)
+        return Offset(o.x.coerceIn(-maxX, maxX), o.y.coerceIn(-maxY, maxY))
+    }
 
-                // 讲解
-                item {
-                    SectionCard(
-                        title = stringResource(R.string.explanation),
-                        content = result.explanation_zh
-                    )
-                }
-
-                // 词汇
-                if (result.key_vocabulary.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = stringResource(R.string.vocabulary),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("填写后题图", style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(
+                modifier = Modifier.fillMaxWidth().clipToBounds()
+                    .onSizeChanged { containerSize = it }
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            val newScale = (scale * zoom).coerceIn(1f, 5f)
+                            scale = newScale
+                            offset = clampOffset(newScale, offset + pan)
+                        }
                     }
-                    items(result.key_vocabulary) { vocab ->
-                        VocabularyCard(vocab, onSpeak = { ttsManager.speak(vocab.word) })
+            ) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "填写后题图",
+                    contentScale = ContentScale.FillWidth,
+                    modifier = Modifier.fillMaxWidth().graphicsLayer {
+                        scaleX = scale; scaleY = scale
+                        translationX = offset.x; translationY = offset.y
                     }
-                }
-
-                // 点读单元
-                if (filteredSpeakUnits.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = stringResource(R.string.tap_to_speak),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    item {
-                        SpeakUnitsGrid(
-                            units = filteredSpeakUnits,
-                            onSpeak = { ttsManager.speak(it.text) }
-                        )
-                    }
-                }
+                )
             }
         }
     }
@@ -191,17 +198,10 @@ fun ResultScreen(
 
 @Composable
 private fun UncertaintyBanner(warning: String) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer
-        )
-    ) {
-        Text(
-            text = "⚠️ $warning",
-            modifier = Modifier.padding(12.dp),
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+        Text("⚠️ $warning", modifier = Modifier.padding(12.dp),
             color = MaterialTheme.colorScheme.onErrorContainer,
-            style = MaterialTheme.typography.bodyMedium
-        )
+            style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -209,80 +209,41 @@ private fun UncertaintyBanner(warning: String) {
 private fun SectionCard(title: String, content: String) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
+            Text(title, style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = content,
-                style = MaterialTheme.typography.bodyLarge
-            )
+            Text(content, style = MaterialTheme.typography.bodyLarge)
         }
     }
 }
 
 @Composable
 private fun VocabularyCard(vocab: VocabularyItem, onSpeak: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onSpeak() }
-    ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+    Card(modifier = Modifier.fillMaxWidth().clickable { onSpeak() }) {
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = vocab.word,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
+                Text(vocab.word, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 if (vocab.ipa.isNotEmpty()) {
-                    Text(
-                        text = vocab.ipa,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Text(vocab.ipa, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text(
-                    text = vocab.meaning_zh,
-                    style = MaterialTheme.typography.bodyMedium
-                )
+                Text(vocab.meaning_zh, style = MaterialTheme.typography.bodyMedium)
             }
-            Icon(
-                Icons.Default.VolumeUp,
-                contentDescription = "发音",
-                tint = MaterialTheme.colorScheme.primary
-            )
+            Icon(Icons.Default.VolumeUp, contentDescription = "发音", tint = MaterialTheme.colorScheme.primary)
         }
     }
 }
 
 @Composable
-private fun SpeakUnitsGrid(
-    units: List<SpeakUnit>,
-    onSpeak: (SpeakUnit) -> Unit
-) {
-    // 按类型分组：先句子后单词
+private fun SpeakUnitsGrid(units: List<SpeakUnit>, onSpeak: (SpeakUnit) -> Unit) {
     val sentences = units.filter { it.type == "sentence" }
     val words = units.filter { it.type == "word" }
-
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // 句子：每个一行
         sentences.forEach { unit ->
             SpeakChip(text = unit.text, onClick = { onSpeak(unit) })
         }
-
-        // 单词：流式布局
         if (words.isNotEmpty()) {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 words.forEach { unit ->
                     SpeakChip(text = unit.text, onClick = { onSpeak(unit) })
                 }
@@ -296,25 +257,6 @@ private fun SpeakChip(text: String, onClick: () -> Unit) {
     AssistChip(
         onClick = onClick,
         label = { Text(text) },
-        leadingIcon = {
-            Icon(
-                Icons.Default.VolumeUp,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp)
-            )
-        }
+        leadingIcon = { Icon(Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(16.dp)) }
     )
-}
-
-@Composable
-private fun FlowRow(
-    horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
-    verticalArrangement: Arrangement.Vertical = Arrangement.Top,
-    content: @Composable () -> Unit
-) {
-    // Compose 1.5+ 内置 FlowRow，这里用 Column+Row 简单模拟
-    // 实际项目中可直接使用 androidx.compose.foundation.layout.FlowRow
-    Column(verticalArrangement = verticalArrangement) {
-        content()
-    }
 }

@@ -27,7 +27,7 @@ class Uncertainty(BaseModel):
 
 class AnswerPlacement(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    number: int = Field(ge=1, le=9)
+    number: int = Field(ge=1, le=99)
     text: str = Field(min_length=1)
     bbox_norm: list[float] = Field(min_length=4, max_length=4)
     font_size_ratio: float | None = Field(default=None, ge=0.005, le=0.2)

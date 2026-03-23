@@ -27,7 +27,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.homework.assistant.R
-import com.homework.assistant.data.remote.HomeworkApi
 import com.homework.assistant.util.ImageUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -40,32 +39,28 @@ fun MergeScreen(
     originalUris: MutableList<Uri>,
     onAddMore: () -> Unit,
     onCropItem: (Int) -> Unit,
-    onUploadComplete: () -> Unit,
+    onSubmitTask: (Bitmap) -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var isUploading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     // 合并预览状态
     var showPreview by remember { mutableStateOf(false) }
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var mergedFile by remember { mutableStateOf<java.io.File?>(null) }
 
     fun swapItems(from: Int, to: Int) {
         if (to in segments.indices) {
             val temp = segments[from]
             segments[from] = segments[to]
             segments[to] = temp
-            // 同步交换原始URI
             val tempOrig = originalUris[from]
             originalUris[from] = originalUris[to]
             originalUris[to] = tempOrig
         }
     }
 
-    // 生成预览
     fun generatePreview() {
         if (segments.isEmpty()) return
         errorMessage = null
@@ -78,45 +73,8 @@ fun MergeScreen(
                 return@launch
             }
             val merged = withContext(Dispatchers.IO) { ImageUtils.mergeVertically(bitmaps) }
-            val file = withContext(Dispatchers.IO) {
-                ImageUtils.saveToCacheFile(context, merged, "merged_${System.currentTimeMillis()}.jpg")
-            }
             previewBitmap = merged
-            mergedFile = file
             showPreview = true
-        }
-    }
-
-    // 确认上传
-    fun confirmUpload() {
-        val bitmap = previewBitmap ?: return
-        isUploading = true
-        showPreview = false
-        errorMessage = null
-        scope.launch {
-            try {
-                // 上传前压缩：长边 1920，JPEG 85%
-                val compressed = withContext(Dispatchers.IO) {
-                    ImageUtils.compressForUpload(context, bitmap)
-                }
-                val api = HomeworkApi()
-                val result = api.parseHomework(compressed)
-                result.fold(
-                    onSuccess = { apiResp ->
-                        ResultHolder.latestResult = apiResp.result
-                        ResultHolder.filledImageBase64 = apiResp.filled_image_base64
-                        isUploading = false
-                        onUploadComplete()
-                    },
-                    onFailure = { e ->
-                        errorMessage = e.message ?: "上传失败"
-                        isUploading = false
-                    }
-                )
-            } catch (e: Exception) {
-                errorMessage = e.message ?: "未知错误"
-                isUploading = false
-            }
         }
     }
 
@@ -140,7 +98,6 @@ fun MergeScreen(
                             }
                         }
                     )
-                    // 可滚动的预览图
                     Box(
                         modifier = Modifier.weight(1f).fillMaxWidth()
                             .verticalScroll(rememberScrollState())
@@ -153,7 +110,6 @@ fun MergeScreen(
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
-                    // 底部按钮
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -163,9 +119,12 @@ fun MergeScreen(
                             modifier = Modifier.weight(1f).height(48.dp)
                         ) { Text("返回修改") }
                         Button(
-                            onClick = { confirmUpload() },
+                            onClick = {
+                                showPreview = false
+                                previewBitmap?.let { onSubmitTask(it) }
+                            },
                             modifier = Modifier.weight(1f).height(48.dp)
-                        ) { Text("确认上传") }
+                        ) { Text("提交分析") }
                     }
                 }
             }
@@ -191,14 +150,12 @@ fun MergeScreen(
         bottomBar = {
             Column(modifier = Modifier.padding(16.dp)) {
                 if (errorMessage != null) {
-                    androidx.compose.foundation.text.selection.SelectionContainer {
-                        Text(
-                            text = errorMessage!!,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                    }
+                    Text(
+                        text = errorMessage!!,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -215,19 +172,9 @@ fun MergeScreen(
                     Button(
                         onClick = { generatePreview() },
                         modifier = Modifier.weight(1f).height(52.dp),
-                        enabled = segments.isNotEmpty() && !isUploading
+                        enabled = segments.isNotEmpty()
                     ) {
-                        if (isUploading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(R.string.analyzing))
-                        } else {
-                            Text(stringResource(R.string.merge_and_upload))
-                        }
+                        Text(stringResource(R.string.merge_and_upload))
                     }
                 }
             }
