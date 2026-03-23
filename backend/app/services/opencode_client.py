@@ -19,9 +19,14 @@ class OpencodeClient:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 
-    async def generate_json(self, prompt: str, file_paths: list[str] | None = None) -> dict[str, Any]:
+    async def generate_json(
+        self, prompt: str, file_paths: list[str] | None = None
+    ) -> dict[str, Any]:
         if not self.settings.opencode_enabled:
-            raise AppError("MODEL_FAILED", "OpenCode integration is disabled (set HW_OPENCODE_ENABLED=true).")
+            raise AppError(
+                "MODEL_FAILED",
+                "OpenCode integration is disabled (set HW_OPENCODE_ENABLED=true).",
+            )
 
         env = self._build_env()
 
@@ -32,8 +37,14 @@ class OpencodeClient:
             cmd.extend(["--file", path])
         # Ensure positional prompt is not consumed by --file array parsing.
         cmd.extend(["--", prompt])
-        logger.info("opencode_cmd_prepared files=%s model=%s", len(file_paths or []), self.settings.opencode_model or "<default>")
+        logger.info(
+            "opencode_cmd_prepared files=%s model=%s",
+            len(file_paths or []),
+            self.settings.opencode_model or "<default>",
+        )
 
+        start_time = asyncio.get_event_loop().time()
+        proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -42,15 +53,36 @@ class OpencodeClient:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=self.settings.opencode_timeout_sec)
+            logger.info(
+                "opencode_spawned pid=%s timeout=%ss",
+                proc.pid,
+                self.settings.opencode_timeout_sec,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=self.settings.opencode_timeout_sec
+            )
         except asyncio.TimeoutError as exc:
+            elapsed = asyncio.get_event_loop().time() - start_time
+            logger.error("opencode_timeout elapsed=%.2fs", elapsed)
+            if proc is not None:
+                try:
+                    proc.kill()
+                    await proc.communicate()
+                    logger.warning("opencode_killed_after_timeout pid=%s", proc.pid)
+                except Exception as kill_exc:
+                    logger.warning("opencode_kill_failed error=%s", kill_exc)
             raise AppError("TIMEOUT", "OpenCode request timed out.") from exc
         except FileNotFoundError as exc:
-            raise AppError("MODEL_FAILED", f"Cannot find opencode command: {self.settings.opencode_cmd}") from exc
+            raise AppError(
+                "MODEL_FAILED",
+                f"Cannot find opencode command: {self.settings.opencode_cmd}",
+            ) from exc
 
         stdout_text = stdout.decode("utf-8", errors="ignore")
         stderr_text = stderr.decode("utf-8", errors="ignore")
-        self._dump_raw_output(prompt=prompt, stdout_text=stdout_text, stderr_text=stderr_text)
+        self._dump_raw_output(
+            prompt=prompt, stdout_text=stdout_text, stderr_text=stderr_text
+        )
 
         if proc.returncode != 0:
             logger.error(
@@ -58,7 +90,9 @@ class OpencodeClient:
                 stderr_text.strip(),
                 stdout_text[:300].replace("\n", "\\n"),
             )
-            raise AppError("MODEL_FAILED", "OpenCode process returned non-zero exit code.")
+            raise AppError(
+                "MODEL_FAILED", "OpenCode process returned non-zero exit code."
+            )
 
         logger.info(
             "opencode_raw_output stdout_len=%s stderr_len=%s stdout_head=%s",
@@ -72,7 +106,9 @@ class OpencodeClient:
             self._raise_if_opencode_error(payload)
             return payload
         except json.JSONDecodeError as exc:
-            raise AppError("MODEL_FAILED", "OpenCode output is not valid JSON.") from exc
+            raise AppError(
+                "MODEL_FAILED", "OpenCode output is not valid JSON."
+            ) from exc
 
     def _build_env(self) -> dict[str, str]:
         import os
@@ -100,7 +136,11 @@ class OpencodeClient:
             return
         err = payload.get("error")
         if isinstance(err, dict):
-            msg = err.get("message") or err.get("name") or "OpenCode returned an error payload."
+            msg = (
+                err.get("message")
+                or err.get("name")
+                or "OpenCode returned an error payload."
+            )
         else:
             msg = "OpenCode returned an error payload."
         raise AppError("MODEL_FAILED", msg)

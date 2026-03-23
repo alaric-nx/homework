@@ -13,7 +13,7 @@ import httpx
 
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.core.models import OCRResult
+from app.core.models import OCRBlock, OCRResult
 
 logger = logging.getLogger(__name__)
 
@@ -21,11 +21,11 @@ logger = logging.getLogger(__name__)
 class OCRProvider(Protocol):
     name: str
 
-    def is_available(self) -> bool:
-        ...
+    def is_available(self) -> bool: ...
 
-    def extract(self, image_bytes: bytes | None, image_url: str | None) -> OCRResult | None:
-        ...
+    def extract(
+        self, image_bytes: bytes | None, image_url: str | None
+    ) -> OCRResult | None: ...
 
 
 @dataclass
@@ -35,7 +35,9 @@ class MockOCRProvider:
     def is_available(self) -> bool:
         return True
 
-    def extract(self, image_bytes: bytes | None, image_url: str | None) -> OCRResult | None:
+    def extract(
+        self, image_bytes: bytes | None, image_url: str | None
+    ) -> OCRResult | None:
         if image_url:
             return OCRResult(text=f"[image_url_input] {image_url}", confidence=0.4)
         if image_bytes:
@@ -57,7 +59,9 @@ class TesseractOCRProvider:
         except Exception:
             return False
 
-    def extract(self, image_bytes: bytes | None, image_url: str | None) -> OCRResult | None:
+    def extract(
+        self, image_bytes: bytes | None, image_url: str | None
+    ) -> OCRResult | None:
         if not image_bytes:
             return None
         import io
@@ -65,7 +69,9 @@ class TesseractOCRProvider:
         import pytesseract
         from PIL import Image
 
-        text = pytesseract.image_to_string(Image.open(io.BytesIO(image_bytes)), lang=self.lang).strip()
+        text = pytesseract.image_to_string(
+            Image.open(io.BytesIO(image_bytes)), lang=self.lang
+        ).strip()
         if not text:
             return None
         return OCRResult(text=text, confidence=0.55)
@@ -85,12 +91,16 @@ class PaddleOCROCRProvider:
         except Exception:
             return False
 
-    def extract(self, image_bytes: bytes | None, image_url: str | None) -> OCRResult | None:
+    def extract(
+        self, image_bytes: bytes | None, image_url: str | None
+    ) -> OCRResult | None:
         if not image_bytes:
             return None
         from paddleocr import PaddleOCR
 
-        engine = PaddleOCR(use_angle_cls=self.use_angle_cls, lang=self.lang, show_log=False)
+        engine = PaddleOCR(
+            use_angle_cls=self.use_angle_cls, lang=self.lang, show_log=False
+        )
         image_path = self._write_temp_image(image_bytes)
         try:
             result = engine.ocr(str(image_path), cls=self.use_angle_cls)
@@ -123,7 +133,9 @@ class PaddleOCROCRProvider:
         return OCRResult(text="\n".join(segments), confidence=min(max(conf, 0.0), 1.0))
 
     def _write_temp_image(self, image_bytes: bytes) -> Path:
-        with tempfile.NamedTemporaryFile(prefix="hw_ocr_", suffix=".jpg", delete=False) as fp:
+        with tempfile.NamedTemporaryFile(
+            prefix="hw_ocr_", suffix=".jpg", delete=False
+        ) as fp:
             fp.write(image_bytes)
             return Path(fp.name)
 
@@ -138,7 +150,9 @@ class PaddleCloudOCRProvider:
     def is_available(self) -> bool:
         return bool(self.api_url and self.token)
 
-    def extract(self, image_bytes: bytes | None, image_url: str | None) -> OCRResult | None:
+    def extract(
+        self, image_bytes: bytes | None, image_url: str | None
+    ) -> OCRResult | None:
         if not image_bytes and not image_url:
             return None
 
@@ -149,21 +163,36 @@ class PaddleCloudOCRProvider:
             params["file"] = base64.b64encode(image_bytes or b"").decode("utf-8")
             params["fileType"] = 1
 
-        headers = {"Authorization": f"token {self.token}", "Content-Type": "application/json"}
+        headers = {
+            "Authorization": f"token {self.token}",
+            "Content-Type": "application/json",
+        }
         with httpx.Client(timeout=float(self.timeout_sec)) as client:
             resp = client.post(self.api_url, json=params, headers=headers)
 
         if resp.status_code >= 400:
-            raise RuntimeError(f"paddle_cloud http={resp.status_code} body={resp.text[:200]}")
+            raise RuntimeError(
+                f"paddle_cloud http={resp.status_code} body={resp.text[:200]}"
+            )
 
         data = resp.json()
         if data.get("errorCode", 0) != 0:
-            raise RuntimeError(f"paddle_cloud api_error={data.get('errorMsg', 'unknown')}")
+            raise RuntimeError(
+                f"paddle_cloud api_error={data.get('errorMsg', 'unknown')}"
+            )
 
         text = self._extract_text(data).strip()
         if not text:
             return None
-        return OCRResult(text=text, confidence=0.85)
+        blocks = self._extract_blocks(data)
+        image_width, image_height = self._extract_image_size(data)
+        return OCRResult(
+            text=text,
+            confidence=0.85,
+            image_width=image_width,
+            image_height=image_height,
+            blocks=blocks,
+        )
 
     def _extract_text(self, data: dict) -> str:
         raw = data.get("result", data)
@@ -175,11 +204,17 @@ class PaddleCloudOCRProvider:
             if not isinstance(page, dict):
                 continue
             md = page.get("markdown", {})
-            if isinstance(md, dict) and isinstance(md.get("text"), str) and md["text"].strip():
+            if (
+                isinstance(md, dict)
+                and isinstance(md.get("text"), str)
+                and md["text"].strip()
+            ):
                 segments.append(md["text"].strip())
                 continue
             pruned = page.get("prunedResult", {})
-            blocks = pruned.get("parsing_res_list", []) if isinstance(pruned, dict) else []
+            blocks = (
+                pruned.get("parsing_res_list", []) if isinstance(pruned, dict) else []
+            )
             if isinstance(blocks, list):
                 for block in blocks:
                     if isinstance(block, dict):
@@ -187,6 +222,79 @@ class PaddleCloudOCRProvider:
                         if isinstance(c, str) and c.strip():
                             segments.append(c.strip())
         return "\n\n".join(segments)
+
+    def _extract_blocks(self, data: dict) -> list[OCRBlock]:
+        raw = data.get("result", data)
+        pages = raw.get("layoutParsingResults", []) if isinstance(raw, dict) else raw
+        if not isinstance(pages, list):
+            return []
+
+        blocks: list[OCRBlock] = []
+        for page_index, page in enumerate(pages):
+            if not isinstance(page, dict):
+                continue
+            pruned = page.get("prunedResult", {})
+            block_list = (
+                pruned.get("parsing_res_list", []) if isinstance(pruned, dict) else []
+            )
+            if not isinstance(block_list, list):
+                continue
+            for block in block_list:
+                if not isinstance(block, dict):
+                    continue
+                text = block.get("block_content")
+                if not isinstance(text, str) or not text.strip():
+                    continue
+                bbox = block.get("block_bbox")
+                polygon = block.get("block_polygon_points")
+                order_value = block.get("block_order")
+                order = None
+                try:
+                    order = int(order_value)
+                except (TypeError, ValueError):
+                    order = None
+                label = (
+                    block.get("block_label")
+                    if isinstance(block.get("block_label"), str)
+                    else None
+                )
+                blocks.append(
+                    OCRBlock(
+                        text=text.strip(),
+                        bbox=bbox
+                        if isinstance(bbox, list) and len(bbox) == 4
+                        else None,
+                        polygon=polygon if isinstance(polygon, list) else [],
+                        label=label,
+                        order=order,
+                        page=page_index,
+                    )
+                )
+        return blocks
+
+    def _extract_image_size(self, data: dict) -> tuple[int | None, int | None]:
+        raw = data.get("result", data)
+        if isinstance(raw, dict):
+            info = raw.get("dataInfo")
+            if isinstance(info, dict):
+                width = info.get("width")
+                height = info.get("height")
+                if isinstance(width, (int, float)) and isinstance(height, (int, float)):
+                    return int(width), int(height)
+
+            pages = raw.get("layoutParsingResults", [])
+            if isinstance(pages, list) and pages:
+                first = pages[0]
+                if isinstance(first, dict):
+                    pruned = first.get("prunedResult", {})
+                    if isinstance(pruned, dict):
+                        width = pruned.get("width")
+                        height = pruned.get("height")
+                        if isinstance(width, (int, float)) and isinstance(
+                            height, (int, float)
+                        ):
+                            return int(width), int(height)
+        return None, None
 
 
 @dataclass
@@ -201,7 +309,9 @@ class RapidOCROCRProvider:
         except Exception:
             return False
 
-    def extract(self, image_bytes: bytes | None, image_url: str | None) -> OCRResult | None:
+    def extract(
+        self, image_bytes: bytes | None, image_url: str | None
+    ) -> OCRResult | None:
         if not image_bytes:
             return None
         from rapidocr_onnxruntime import RapidOCR
@@ -232,7 +342,9 @@ class RapidOCROCRProvider:
         return OCRResult(text="\n".join(segments), confidence=min(max(conf, 0.0), 1.0))
 
     def _write_temp_image(self, image_bytes: bytes) -> Path:
-        with tempfile.NamedTemporaryFile(prefix="hw_ocr_", suffix=".jpg", delete=False) as fp:
+        with tempfile.NamedTemporaryFile(
+            prefix="hw_ocr_", suffix=".jpg", delete=False
+        ) as fp:
             fp.write(image_bytes)
             return Path(fp.name)
 
@@ -242,9 +354,13 @@ class OCRSkill:
         self.settings = settings
         self.providers = self._build_providers(settings)
 
-    async def extract_text(self, image_bytes: bytes | None, image_url: str | None) -> OCRResult:
+    async def extract_text(
+        self, image_bytes: bytes | None, image_url: str | None
+    ) -> OCRResult:
         if image_bytes is None and not image_url:
-            raise AppError("INVALID_REQUEST", "Either image file or image_url is required.")
+            raise AppError(
+                "INVALID_REQUEST", "Either image file or image_url is required."
+            )
 
         resolved_image_bytes = image_bytes or self._download_image_if_needed(image_url)
         if resolved_image_bytes is None and not image_url:
@@ -257,16 +373,26 @@ class OCRSkill:
                 continue
             try:
                 logger.info("ocr_provider_attempt provider=%s", provider.name)
-                result = await asyncio.to_thread(provider.extract, resolved_image_bytes, image_url)
+                result = await asyncio.to_thread(
+                    provider.extract, resolved_image_bytes, image_url
+                )
                 if result and result.text.strip():
-                    logger.info("ocr_provider_success provider=%s confidence=%.3f", provider.name, result.confidence)
+                    logger.info(
+                        "ocr_provider_success provider=%s confidence=%.3f",
+                        provider.name,
+                        result.confidence,
+                    )
                     return result
             except Exception as exc:
                 last_error = exc
-                logger.warning("ocr_provider_failed provider=%s error=%s", provider.name, exc)
+                logger.warning(
+                    "ocr_provider_failed provider=%s error=%s", provider.name, exc
+                )
 
         if last_error:
-            raise AppError("OCR_FAILED", f"OCR providers failed: {last_error}") from last_error
+            raise AppError(
+                "OCR_FAILED", f"OCR providers failed: {last_error}"
+            ) from last_error
         raise AppError("OCR_FAILED", "No OCR provider produced text.")
 
     def _download_image_if_needed(self, image_url: str | None) -> bytes | None:
@@ -280,7 +406,11 @@ class OCRSkill:
             return None
 
     def _build_providers(self, settings: Settings) -> list[OCRProvider]:
-        order = [item.strip().lower() for item in settings.ocr_provider_order.split(",") if item.strip()]
+        order = [
+            item.strip().lower()
+            for item in settings.ocr_provider_order.split(",")
+            if item.strip()
+        ]
         providers: list[OCRProvider] = []
         for name in order:
             if name == "paddle_cloud":
@@ -296,7 +426,11 @@ class OCRSkill:
             elif name == "paddleocr":
                 providers.append(PaddleOCROCRProvider(lang=settings.ocr_lang))
             elif name == "tesseract":
-                t_lang = "eng" if settings.ocr_lang.lower().startswith("en") else settings.ocr_lang
+                t_lang = (
+                    "eng"
+                    if settings.ocr_lang.lower().startswith("en")
+                    else settings.ocr_lang
+                )
                 providers.append(TesseractOCRProvider(lang=t_lang))
             elif name == "mock":
                 providers.append(MockOCRProvider())
@@ -305,4 +439,7 @@ class OCRSkill:
         return providers
 
     def list_providers(self) -> list[dict[str, object]]:
-        return [{"name": provider.name, "available": bool(provider.is_available())} for provider in self.providers]
+        return [
+            {"name": provider.name, "available": bool(provider.is_available())}
+            for provider in self.providers
+        ]

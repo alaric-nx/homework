@@ -50,11 +50,14 @@ class EnglishSolverSkill:
             "4) speak_units 是数组，元素字段：unit_type(只能是word或sentence), text。\n"
             "5) uncertainty 字段：requires_review(boolean), confidence(0到1), reason(可空字符串)。\n"
             "6) 字段必须齐全，不能缺失，不能新增字段。\n"
-            "7) 你会收到题目图片附件，必须优先根据图片内容识别每个编号对应的玩具并填写答案。\n"
+            "7) question_meaning_zh 必须分两行：第一行是题目中文翻译，第二行说明题目要做什么。\n"
+            "8) 你会收到题目图片附件，必须优先根据图片内容识别每个编号对应的玩具并填写答案。\n"
             f"题目文本如下：\n{text}\n"
         )
 
-    def fallback_output(self, ocr: OCRResult, reason: str | None = None) -> dict[str, Any]:
+    def fallback_output(
+        self, ocr: OCRResult, reason: str | None = None
+    ) -> dict[str, Any]:
         if reason:
             logger.warning("english_solver_fallback reason=%s", reason)
         base_text = ocr.text if ocr.text.strip() else "题目文本识别为空"
@@ -62,7 +65,9 @@ class EnglishSolverSkill:
             "question_meaning_zh": f"请根据题目完成英语作业（OCR文本：{base_text}）。",
             "reference_answer": "请根据题干补全正确答案（当前为后端占位答案）。",
             "explanation_zh": "这是 MVP 阶段的兜底讲解，等待 opencode 接入后会输出更准确解析。",
-            "key_vocabulary": [{"word": "answer", "meaning_zh": "答案", "ipa": "/ˈɑːnsər/"}],
+            "key_vocabulary": [
+                {"word": "answer", "meaning_zh": "答案", "ipa": "/ˈɑːnsər/"}
+            ],
             "speak_units": [
                 {"unit_type": "word", "text": "answer"},
                 {"unit_type": "sentence", "text": "Please complete the exercise."},
@@ -75,6 +80,8 @@ class EnglishSolverSkill:
         }
 
     def _write_temp_image(self, image_bytes: bytes) -> Path:
-        with tempfile.NamedTemporaryFile(prefix="hw_solver_", suffix=".jpg", delete=False) as fp:
+        with tempfile.NamedTemporaryFile(
+            prefix="hw_solver_", suffix=".jpg", delete=False
+        ) as fp:
             fp.write(image_bytes)
             return Path(fp.name)

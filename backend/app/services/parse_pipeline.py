@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from app.core.config import Settings
 from app.core.errors import AppError
@@ -20,16 +21,30 @@ class ParsePipeline:
         self.schema_guard = ResponseSchemaGuard()
         self.english_solver = EnglishSolverSkill(opencode_client)
 
+    def _attach_ocr(
+        self, payload: HomeworkParseResponse, ocr_result: OCRResult
+    ) -> HomeworkParseResponse:
+        payload.ocr_result = ocr_result
+        return payload
+
     async def run(
         self,
         image_bytes: bytes | None,
         image_url: str | None,
         subject_hint: str | None,
     ) -> HomeworkParseResponse:
-        ocr_result: OCRResult = await self.ocr_skill.extract_text(image_bytes=image_bytes, image_url=image_url)
-        subject = route_subject(subject_hint, ocr_result.text)
+        start_ts = time.perf_counter()
+        ocr_result = OCRResult(text="", confidence=0.0)
+        logger.info("pipeline_step ocr skipped")
+        subject = subject_hint or "english"
+        logger.info(
+            "pipeline_step route_subject elapsed=%.2fs", time.perf_counter() - start_ts
+        )
         if subject != "english":
-            raise AppError("UNSUPPORTED_SUBJECT", f"Current MVP only supports english; got {subject}.")
+            raise AppError(
+                "UNSUPPORTED_SUBJECT",
+                f"Current MVP only supports english; got {subject}.",
+            )
 
         model_failure_reason = ""
         try:
@@ -39,17 +54,34 @@ class ParsePipeline:
                 image_url=image_url,
                 strict_mode=False,
             )
+            logger.info(
+                "pipeline_step opencode elapsed=%.2fs", time.perf_counter() - start_ts
+            )
         except AppError as exc:
             model_failure_reason = exc.detail
-            candidate = self.english_solver.fallback_output(ocr_result, reason=exc.detail)
+            candidate = self.english_solver.fallback_output(
+                ocr_result, reason=exc.detail
+            )
 
         try:
-            return self.schema_guard.validate_payload(candidate)
+            validated = self.schema_guard.validate_payload(candidate)
+            logger.info(
+                "pipeline_step schema_validate elapsed=%.2fs",
+                time.perf_counter() - start_ts,
+            )
+            return self._attach_ocr(validated, ocr_result)
         except AppError as first_error:
             if model_failure_reason:
                 # model call already failed; strict retry is unlikely to help
-                fallback = self.english_solver.fallback_output(ocr_result, reason=model_failure_reason)
-                return self.schema_guard.validate_payload(fallback)
+                fallback = self.english_solver.fallback_output(
+                    ocr_result, reason=model_failure_reason
+                )
+                validated = self.schema_guard.validate_payload(fallback)
+                logger.info(
+                    "pipeline_step schema_validate_fallback elapsed=%.2fs",
+                    time.perf_counter() - start_ts,
+                )
+                return self._attach_ocr(validated, ocr_result)
             try:
                 candidate_retry = await self.english_solver.solve(
                     ocr_result,
@@ -57,15 +89,40 @@ class ParsePipeline:
                     image_url=image_url,
                     strict_mode=True,
                 )
+                logger.info(
+                    "pipeline_step opencode_strict elapsed=%.2fs",
+                    time.perf_counter() - start_ts,
+                )
             except AppError as retry_exc:
-                fallback = self.english_solver.fallback_output(ocr_result, reason=retry_exc.detail)
-                return self.schema_guard.validate_payload(fallback)
+                fallback = self.english_solver.fallback_output(
+                    ocr_result, reason=retry_exc.detail
+                )
+                validated = self.schema_guard.validate_payload(fallback)
+                logger.info(
+                    "pipeline_step schema_validate_retry_fallback elapsed=%.2fs",
+                    time.perf_counter() - start_ts,
+                )
+                return self._attach_ocr(validated, ocr_result)
             try:
-                return self.schema_guard.validate_payload(candidate_retry)
+                validated = self.schema_guard.validate_payload(candidate_retry)
+                logger.info(
+                    "pipeline_step schema_validate_retry elapsed=%.2fs",
+                    time.perf_counter() - start_ts,
+                )
+                return self._attach_ocr(validated, ocr_result)
             except AppError as second_error:
-                logger.warning("schema_validation_failed first=%s second=%s", first_error.detail, second_error.detail)
+                logger.warning(
+                    "schema_validation_failed first=%s second=%s",
+                    first_error.detail,
+                    second_error.detail,
+                )
                 fallback = self.english_solver.fallback_output(
                     ocr_result,
                     reason="模型输出未满足固定 JSON 结构，已自动切换兜底结果。",
                 )
-                return self.schema_guard.validate_payload(fallback)
+                validated = self.schema_guard.validate_payload(fallback)
+                logger.info(
+                    "pipeline_step schema_validate_final_fallback elapsed=%.2fs",
+                    time.perf_counter() - start_ts,
+                )
+                return self._attach_ocr(validated, ocr_result)
