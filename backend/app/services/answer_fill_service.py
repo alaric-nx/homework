@@ -53,31 +53,20 @@ class AnswerFillService:
         except Exception:
             font = ImageFont.load_default()
 
-        detected = self._detect_answer_lines(image)
-        left_order = [1, 3, 5, 7, 9]
-        right_order = [2, 4, 6, 8]
-        line_map = self._assign_lines_by_order(
-            left_order, right_order, detected.get("left", []), detected.get("right", [])
-        )
+        line_map = self._build_line_map_from_ocr(parsed.ocr_result, answers, w, h)
+        if not line_map:
+            line_map = self._build_ratio_line_map(answers, w, h)
         logger.info("answer_fill_lines line_map=%s", line_map)
 
         debug_points: list[tuple[int, int, int, int, str]] = []
 
-        for num in left_order:
+        for num in sorted(answers.keys()):
             text = answers.get(num)
             if text:
                 line = line_map.get(num)
                 if line is not None:
                     self._draw_text_fit_line(draw, text, line, w, h, font_size)
-                    debug_points.append((*line, f"L{num}:{text}"))
-
-        for num in right_order:
-            text = answers.get(num)
-            if text:
-                line = line_map.get(num)
-                if line is not None:
-                    self._draw_text_fit_line(draw, text, line, w, h, font_size)
-                    debug_points.append((*line, f"R{num}:{text}"))
+                    debug_points.append((*line, f"{num}:{text}"))
 
         out = io.BytesIO()
         image.save(out, format="JPEG", quality=90)
@@ -96,7 +85,7 @@ class AnswerFillService:
             if match:
                 idx = int(match.group(1))
                 ans = match.group(2).strip()
-                if 1 <= idx <= 9 and ans:
+                if 1 <= idx <= 99 and ans:
                     answer_map[idx] = ans
                 continue
 
@@ -105,9 +94,138 @@ class AnswerFillService:
             ):
                 idx = int(match.group(1))
                 ans = match.group(2).strip()
-                if 1 <= idx <= 9 and ans:
+                if 1 <= idx <= 99 and ans:
                     answer_map[idx] = ans
         return answer_map
+
+    def _build_line_map_from_ocr(
+        self,
+        ocr_result,
+        answers: dict[int, str],
+        image_w: int,
+        image_h: int,
+    ) -> dict[int, tuple[int, int, int, int]]:
+        if not ocr_result or not getattr(ocr_result, "blocks", None):
+            return {}
+
+        numbered_candidates: dict[int, tuple[int, int, int, int, int, int]] = {}
+        # (score_order, -width, x, y, w, h)
+        row_candidates: list[tuple[int, int, int, int]] = []
+
+        for block in ocr_result.blocks or []:
+            bbox = self._block_bbox(block)
+            text = (getattr(block, "text", "") or "").strip()
+            if bbox is None or not text:
+                continue
+            bx, by, bw, bh = bbox
+            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+            if not lines:
+                continue
+            per_h = max(12.0, bh / max(1, len(lines)))
+            order_score = (
+                int(getattr(block, "order", 10**6))
+                if getattr(block, "order", None) is not None
+                else 10**6
+            )
+
+            for i, line in enumerate(lines):
+                row_y = int(by + i * per_h + per_h * 0.45)
+                start_x = int(bx + min(140, bw * 0.32))
+                line_w = int(max(70, bw - (start_x - bx) - bw * 0.06))
+                line_h = int(max(14, per_h * 0.55))
+                placement = (
+                    max(0, start_x),
+                    max(0, row_y),
+                    max(60, min(line_w, image_w - max(0, start_x) - 4)),
+                    line_h,
+                )
+
+                num_match = re.match(r"^\s*(\d{1,2})[\.\)\-:]?\s+.+$", line)
+                if num_match:
+                    num = int(num_match.group(1))
+                    if num in answers:
+                        candidate = (
+                            order_score,
+                            -placement[2],
+                            placement[0],
+                            placement[1],
+                            placement[2],
+                            placement[3],
+                        )
+                        prev = numbered_candidates.get(num)
+                        if prev is None or candidate < prev:
+                            numbered_candidates[num] = candidate
+
+                if "_" in line:
+                    row_candidates.append(placement)
+
+        mapped: dict[int, tuple[int, int, int, int]] = {
+            num: (c[2], c[3], c[4], c[5]) for num, c in numbered_candidates.items()
+        }
+
+        if len(mapped) >= len(answers):
+            return mapped
+
+        # 无编号/编号不足时：使用 OCR 下划线行按垂直顺序补齐
+        row_candidates = self._dedupe_rows_by_y(row_candidates)
+        if row_candidates:
+            unused_rows = [r for r in sorted(row_candidates, key=lambda r: r[1])]
+            for num in sorted(answers.keys()):
+                if num in mapped or not unused_rows:
+                    continue
+                mapped[num] = unused_rows.pop(0)
+        return mapped
+
+    def _build_ratio_line_map(
+        self, answers: dict[int, str], image_w: int, image_h: int
+    ) -> dict[int, tuple[int, int, int, int]]:
+        nums = sorted(answers.keys())
+        if not nums:
+            return {}
+
+        if all(1 <= n <= 9 for n in nums):
+            line_map: dict[int, tuple[int, int, int, int]] = {}
+            left_nums = [n for n in nums if n % 2 == 1]
+            right_nums = [n for n in nums if n % 2 == 0]
+            gap = int(image_h * self.LINE_GAP_RATIO)
+            base_y = int(image_h * self.START_Y_RATIO)
+            left_x = int(image_w * self.LEFT_X_RATIO)
+            right_x = int(image_w * self.RIGHT_X_RATIO)
+            line_w = int(image_w * 0.26)
+            line_h = max(16, int(image_h * 0.018))
+            for i, n in enumerate(left_nums):
+                line_map[n] = (left_x, base_y + i * gap, line_w, line_h)
+            for i, n in enumerate(right_nums):
+                line_map[n] = (right_x, base_y + i * gap, line_w, line_h)
+            return line_map
+
+        # 通用题型：单列等间距兜底
+        x = int(image_w * 0.2)
+        w = int(image_w * 0.6)
+        h = max(16, int(image_h * 0.02))
+        start_y = int(image_h * 0.74)
+        gap = max(24, int(image_h * 0.055))
+        return {n: (x, start_y + i * gap, w, h) for i, n in enumerate(nums)}
+
+    def _dedupe_rows_by_y(
+        self, rows: list[tuple[int, int, int, int]]
+    ) -> list[tuple[int, int, int, int]]:
+        if not rows:
+            return []
+        rows = sorted(rows, key=lambda r: (r[1], r[0]))
+        out: list[tuple[int, int, int, int]] = []
+        for row in rows:
+            if not out:
+                out.append(row)
+                continue
+            px, py, pw, ph = out[-1]
+            x, y, w, h = row
+            if abs(y - py) <= 14:
+                if w > pw:
+                    out[-1] = row
+            else:
+                out.append(row)
+        return out
 
     def _write_output_file(self, image_bytes: bytes) -> Path:
         output_dir = Path.cwd() / "output"

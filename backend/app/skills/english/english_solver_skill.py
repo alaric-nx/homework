@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -23,7 +25,7 @@ class EnglishSolverSkill:
         image_url: str | None = None,
         strict_mode: bool = False,
     ) -> dict[str, Any]:
-        prompt = self._build_prompt(ocr.text, strict_mode=strict_mode)
+        prompt = self._build_prompt(ocr, strict_mode=strict_mode)
         tmp_file: Path | None = None
         try:
             files: list[str] = []
@@ -38,8 +40,20 @@ class EnglishSolverSkill:
             if tmp_file is not None:
                 tmp_file.unlink(missing_ok=True)
 
-    def _build_prompt(self, text: str, strict_mode: bool) -> str:
+    def _build_prompt(self, ocr: OCRResult, strict_mode: bool) -> str:
         strict_flag = "严格JSON模式" if strict_mode else "正常模式"
+        ocr_text = (ocr.text or "").strip()
+        if not ocr_text:
+            ocr_text = "[OCR为空]"
+
+        ordered_number_hints = self._extract_number_hints(ocr)
+        numbered_hint_text = (
+            "\n".join(f"{k}: {v}" for k, v in ordered_number_hints.items())
+            if ordered_number_hints
+            else "[无可用编号提示]"
+        )
+        block_preview = self._build_block_preview(ocr, max_items=20)
+
         return (
             "你是小学英语作业解析助手。\n"
             f"当前模式：{strict_flag}\n"
@@ -51,9 +65,61 @@ class EnglishSolverSkill:
             "5) uncertainty 字段：requires_review(boolean), confidence(0到1), reason(可空字符串)。\n"
             "6) 字段必须齐全，不能缺失，不能新增字段。\n"
             "7) question_meaning_zh 必须分两行：第一行是题目中文翻译，第二行说明题目要做什么。\n"
-            "8) 你会收到题目图片附件，必须优先根据图片内容识别每个编号对应的玩具并填写答案。\n"
-            f"题目文本如下：\n{text}\n"
+            "8) 你会收到题目图片附件，必须优先根据图片内容识别每个编号对应的玩具并填写答案（image-first）。\n"
+            "9) OCR 只是辅助信息（OCR-assist）。如果 OCR 与图片冲突，以图片为准。\n"
+            "10) 若题目含编号，请按检测到的编号顺序给答案；若无编号，按图片语义正常作答。\n"
+            f"OCR全文如下：\n{ocr_text}\n\n"
+            f"OCR按编号整理（辅助）如下：\n{numbered_hint_text}\n\n"
+            f"OCR块预览（辅助）如下：\n{block_preview}\n"
         )
+
+    def _extract_number_hints(self, ocr: OCRResult) -> dict[int, str]:
+        hints: dict[int, str] = {}
+        lines: list[str] = []
+
+        for block in sorted(
+            ocr.blocks, key=lambda b: (b.order is None, b.order if b.order is not None else 10**9)
+        ):
+            text = (block.text or "").strip()
+            if text:
+                lines.extend(text.splitlines())
+
+        if ocr.text.strip():
+            lines.extend(ocr.text.splitlines())
+
+        # 支持 1 xx / 1. xx / 1) xx / 1- xx / 1: xx
+        line_pattern = re.compile(r"^\s*(\d{1,2})[\.\)\-:]?\s+(.+?)\s*$")
+        for raw in lines:
+            line = raw.strip()
+            if not line:
+                continue
+            m = line_pattern.match(line)
+            if not m:
+                continue
+            num = int(m.group(1))
+            if num <= 0 or num > 99:
+                continue
+            content = m.group(2).strip()
+            if content and num not in hints:
+                hints[num] = content
+
+        return dict(sorted(hints.items(), key=lambda item: item[0]))
+
+    def _build_block_preview(self, ocr: OCRResult, max_items: int) -> str:
+        if not ocr.blocks:
+            return "[]"
+        preview = []
+        for block in sorted(
+            ocr.blocks, key=lambda b: (b.order is None, b.order if b.order is not None else 10**9)
+        )[:max_items]:
+            preview.append(
+                {
+                    "order": block.order,
+                    "label": block.label,
+                    "text": block.text,
+                }
+            )
+        return json.dumps(preview, ensure_ascii=False)
 
     def fallback_output(
         self, ocr: OCRResult, reason: str | None = None

@@ -11,12 +11,12 @@ import androidx.navigation.compose.rememberNavController
 import com.homework.assistant.ui.capture.CaptureScreen
 import com.homework.assistant.ui.crop.CropScreen
 import com.homework.assistant.ui.merge.MergeScreen
+import com.homework.assistant.ui.merge.ResultHolder
 import com.homework.assistant.ui.result.ResultScreen
 
 /**
  * 应用导航：
- * - 单图拍照/选图 -> 裁剪(可跳过) -> 合并页
- * - 多图选图 -> 合并页（每张可单独裁剪）
+ * - 选图/拍照 -> 合并页（可裁剪）
  * - 合并页可继续添加、可对单张裁剪
  */
 @Composable
@@ -24,10 +24,17 @@ fun HomeworkApp() {
     val navController = rememberNavController()
     val selectedImageUri = remember { mutableStateListOf<Uri>() }
     val cropSegments = remember { mutableStateListOf<Uri>() }
-    // 保存原始图片URI，重新裁剪时始终使用原图
     val originalUris = remember { mutableStateListOf<Uri>() }
-    // 记录从合并页裁剪哪张图片的索引
     val cropTargetIndex = remember { mutableIntStateOf(-1) }
+
+    fun clearAll() {
+        cropSegments.clear()
+        originalUris.clear()
+        selectedImageUri.clear()
+        cropTargetIndex.intValue = -1
+        ResultHolder.latestResult = null
+        ResultHolder.filledImageBase64 = null
+    }
 
     NavHost(navController = navController, startDestination = "capture") {
 
@@ -129,10 +136,7 @@ fun HomeworkApp() {
         composable("result") {
             ResultScreen(
                 onStartOver = {
-                    cropSegments.clear()
-                    originalUris.clear()
-                    selectedImageUri.clear()
-                    cropTargetIndex.intValue = -1
+                    clearAll()
                     navController.navigate("capture") {
                         popUpTo("capture") { inclusive = true }
                     }

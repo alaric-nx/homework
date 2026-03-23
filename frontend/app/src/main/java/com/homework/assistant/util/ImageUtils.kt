@@ -7,6 +7,7 @@ import android.graphics.Canvas
 import android.net.Uri
 import java.io.File
 import java.io.FileOutputStream
+import kotlin.math.max
 
 /**
  * 图片工具：裁剪区域提取、多图纵向合并
@@ -72,13 +73,44 @@ object ImageUtils {
     }
 
     /**
+     * 压缩图片：长边限制 maxLongSide，JPEG quality，自动修正 EXIF 旋转
+     * 返回压缩后的 File
+     */
+    fun compressForUpload(
+        context: Context,
+        bitmap: Bitmap,
+        maxLongSide: Int = 1920,
+        quality: Int = 85,
+        name: String = "upload_${System.currentTimeMillis()}.jpg"
+    ): File {
+        var bmp = bitmap
+        // 缩放
+        val longSide = max(bmp.width, bmp.height)
+        if (longSide > maxLongSide) {
+            val scale = maxLongSide.toFloat() / longSide
+            bmp = Bitmap.createScaledBitmap(
+                bmp,
+                (bmp.width * scale).toInt(),
+                (bmp.height * scale).toInt(),
+                true
+            )
+        }
+        return saveToCacheFile(context, bmp, name, quality)
+    }
+
+    /**
      * 保存 Bitmap 到缓存目录，返回 File
      */
-    fun saveToCacheFile(context: Context, bitmap: Bitmap, name: String = "merged.jpg"): File {
+    fun saveToCacheFile(
+        context: Context,
+        bitmap: Bitmap,
+        name: String = "merged.jpg",
+        quality: Int = 90
+    ): File {
         val dir = File(context.cacheDir, "images").apply { mkdirs() }
         val file = File(dir, name)
         FileOutputStream(file).use { out ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out)
         }
         return file
     }

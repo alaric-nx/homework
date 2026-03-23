@@ -40,26 +40,29 @@
 - [x] 明确“多图合一题”由前端完成
 - [x] 明确前端为 Kotlin 原生
 - [x] 明确后端暂不做完整性强校验
-- [ ] 定义前端交互细节（裁剪页、合并页、结果页）
+- [x] 定义前端交互细节（裁剪页、合并页、结果页）
 - [ ] 定义异常流程（上传失败、解析失败、超时重试）
 
 ### B. 后端能力（Python + opencode + skills）
 - [x] 明确后端总体方向（Python + opencode）
 - [x] 明确 skills 分流口（english/chinese/math）
-- [ ] 实现 subject router skill
-- [ ] 实现 OCR skill
-- [ ] 实现 English semantic/solver skill
-- [ ] 实现固定 JSON 输出与 schema 校验
-- [ ] 实现 API 接口（解析入口）
-- [ ] 实现日志与错误码规范
+- [x] 实现 subject router skill
+- [x] 实现 OCR skill
+- [x] 实现 English semantic/solver skill
+- [x] 实现固定 JSON 输出与 schema 校验
+- [x] 实现 API 接口（解析入口）
+- [x] 实现日志与错误码规范
 
 ### C. 前端能力（Kotlin Android）
-- [x] 明确使用 Android 本地 TTS（TextToSpeech）
+- [x] 明确使用 Android 本地 TTS（TextToSpeech，延迟初始化 + 多引擎回退）
 - [x] 相机拍照与相册导入
-- [x] 题图裁剪（单图多次裁）
+- [x] 题图裁剪（合并页内单张裁剪，坐标精确映射 ContentScale.Fit）
 - [x] 多段图片排序与合并
-- [x] 上传与结果展示
+- [x] 上传与结果展示（含填写后题图 base64 展示）
 - [x] 词/句点击发音
+- [x] 上传前图片压缩（长边 1920px + JPEG 85%）
+- [x] 后端 API 对接（parse-fill 接口、SSL 忽略、ApiResponse 字段映射）
+- [x] "再来一题"状态完整清理（含 ResultHolder）
 
 ### D. 当前不做 / 后续再做
 - [x] 暂不做语文 skills
@@ -76,6 +79,13 @@
 - `key_vocabulary`
 - `speak_units`
 - `uncertainty`
+
+## 解析策略（当前生效）
+- 总体策略：`image-first + OCR-assist`
+- 大模型输入：必须包含原题图；OCR 结果作为辅助，不可替代图片。
+- 冲突处理：OCR 与图片冲突时，以图片语义为准。
+- 编号题策略：仅当识别到编号时按编号顺序组织答案；无编号题不强制排序。
+- 当前 OCR 来源：PaddleCloud 文档解析返回结构，优先取 `layoutParsingResults[*].markdown.text`，并结合 `parsing_res_list` 提供块级辅助信息。
 
 ## 子目录说明
 - 前端说明：`/frontend/AGENTS.md`

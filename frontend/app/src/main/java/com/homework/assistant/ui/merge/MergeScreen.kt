@@ -89,14 +89,18 @@ fun MergeScreen(
 
     // 确认上传
     fun confirmUpload() {
-        val file = mergedFile ?: return
+        val bitmap = previewBitmap ?: return
         isUploading = true
         showPreview = false
         errorMessage = null
         scope.launch {
             try {
+                // 上传前压缩：长边 1920，JPEG 85%
+                val compressed = withContext(Dispatchers.IO) {
+                    ImageUtils.compressForUpload(context, bitmap)
+                }
                 val api = HomeworkApi()
-                val result = api.parseHomework(file)
+                val result = api.parseHomework(compressed)
                 result.fold(
                     onSuccess = { apiResp ->
                         ResultHolder.latestResult = apiResp.result

@@ -22,12 +22,19 @@
 ## 功能状态
 - [x] 后端路线已确定（Python + opencode + skills）
 - [x] 学科分流口已确定（先英语）
-- [ ] subject_router skill
-- [ ] ocr skill
-- [ ] english solver skill
-- [ ] 固定 JSON schema
-- [ ] 解析 API
-- [ ] 日志与错误码
+- [x] subject_router skill
+- [x] ocr skill
+- [x] english solver skill
+- [x] 固定 JSON schema
+- [x] 解析 API
+- [x] 日志与错误码
+
+## 当前实现约定（2026-03-23）
+- 解题策略：`image-first + OCR-assist`
+- OCR 在 pipeline 中默认执行；即使 OCR 失败，也继续把图片喂给大模型解题（不中断）。
+- OCR 结构来源：优先 `layoutParsingResults[*].markdown.text`，并抽取 `parsing_res_list` 的 `block_content/order/label` 作为辅助块信息。
+- 英语解题 prompt：包含原图（主证据）+ OCR 全文 + OCR 编号提示（仅检测到编号时排序）+ OCR 块预览。
+- 冲突原则：图片优先，OCR 仅辅助。
 
 ## 返回 JSON 目标字段
 - `question_meaning_zh`

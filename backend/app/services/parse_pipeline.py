@@ -35,7 +35,21 @@ class ParsePipeline:
     ) -> HomeworkParseResponse:
         start_ts = time.perf_counter()
         ocr_result = OCRResult(text="", confidence=0.0)
-        logger.info("pipeline_step ocr skipped")
+        try:
+            ocr_result = await self.ocr_skill.extract_text(
+                image_bytes=image_bytes,
+                image_url=image_url,
+            )
+            logger.info(
+                "pipeline_step ocr elapsed=%.2fs confidence=%.3f text_len=%s blocks=%s",
+                time.perf_counter() - start_ts,
+                ocr_result.confidence,
+                len(ocr_result.text),
+                len(ocr_result.blocks),
+            )
+        except AppError as exc:
+            # image-first strategy: OCR 失败不阻断后续解题
+            logger.warning("pipeline_step ocr_failed detail=%s", exc.detail)
         subject = subject_hint or "english"
         logger.info(
             "pipeline_step route_subject elapsed=%.2fs", time.perf_counter() - start_ts
