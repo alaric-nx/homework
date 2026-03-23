@@ -46,7 +46,7 @@ fun ResultScreen(
     val context = LocalContext.current
     val app = context.applicationContext as HomeworkApplication
     val ttsManager = app.ttsManager
-    val repo = remember { TaskRepository(context) }
+    val repo = app.taskRepository
     val gson = remember { Gson() }
 
     LaunchedEffect(Unit) { ttsManager.ensureInit(context) }

@@ -10,13 +10,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.homework.assistant.data.local.TaskEntity
-import com.homework.assistant.data.repository.TaskRepository
 import com.homework.assistant.service.UploadWorker
 import com.homework.assistant.ui.capture.CaptureScreen
 import com.homework.assistant.ui.crop.CropScreen
@@ -58,11 +56,16 @@ fun HomeworkApp() {
         ResultHolder.filledImageBase64 = null
     }
 
-    // 当前路由
+    /** 统一的 tab 切换：清栈到 capture，再跳目标 */
+    fun navigateToTab(route: String) {
+        navController.navigate(route) {
+            popUpTo("capture") { inclusive = false }
+            launchSingleTop = true
+        }
+    }
+
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-
-    // 底部栏只在 capture 和 taskList 显示
     val showBottomBar = currentRoute in listOf("capture", "taskList")
 
     Scaffold(
@@ -74,13 +77,7 @@ fun HomeworkApp() {
                             selected = currentRoute == tab.route,
                             onClick = {
                                 if (currentRoute != tab.route) {
-                                    navController.navigate(tab.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
+                                    navigateToTab(tab.route)
                                 }
                             },
                             icon = { Icon(tab.icon, contentDescription = tab.label) },
@@ -103,18 +100,14 @@ fun HomeworkApp() {
                         cropSegments.add(uri)
                         originalUris.add(uri)
                         if (navController.currentDestination?.route == "capture") {
-                            navController.navigate("merge") {
-                                popUpTo("capture") { inclusive = false }
-                            }
+                            navController.navigate("merge")
                         }
                     },
                     onMultipleImagesSelected = { uris ->
                         cropSegments.addAll(uris)
                         originalUris.addAll(uris)
                         if (navController.currentDestination?.route == "capture") {
-                            navController.navigate("merge") {
-                                popUpTo("capture") { inclusive = false }
-                            }
+                            navController.navigate("merge")
                         }
                     }
                 )
@@ -179,7 +172,6 @@ fun HomeworkApp() {
                         navController.navigate("cropItem")
                     },
                     onSubmitTask = { bitmap ->
-                        // 异步提交：保存图片 → 创建任务 → enqueue Worker → 回首页
                         scope.launch {
                             val (imagePath, thumbPath) = withContext(Dispatchers.IO) {
                                 val imgFile = ImageUtils.compressForUpload(context, bitmap)
@@ -198,15 +190,7 @@ fun HomeworkApp() {
                             app.taskRepository.insert(task)
                             UploadWorker.enqueue(context, taskId)
                             clearAll()
-                            // 先清掉 capture 子栈（merge 等），再切到任务列表
-                            navController.popBackStack("capture", inclusive = false)
-                            navController.navigate("taskList") {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = false
-                                }
-                                launchSingleTop = true
-                                restoreState = false
-                            }
+                            navigateToTab("taskList")
                         }
                     },
                     onBack = { navController.popBackStack() }
@@ -227,9 +211,7 @@ fun HomeworkApp() {
                     taskId = taskId,
                     onStartOver = {
                         clearAll()
-                        navController.navigate("capture") {
-                            popUpTo("capture") { inclusive = true }
-                        }
+                        navigateToTab("capture")
                     }
                 )
             }

@@ -36,7 +36,8 @@ fun TaskListScreen(
     onTaskClick: (String) -> Unit
 ) {
     val context = LocalContext.current
-    val repo = remember { TaskRepository(context) }
+    val app = context.applicationContext as com.homework.assistant.HomeworkApplication
+    val repo = app.taskRepository
     val tasks by repo.observeAll().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     var showClearDialog by remember { mutableStateOf(false) }
@@ -95,7 +96,7 @@ fun TaskListScreen(
                         onRetry = {
                             scope.launch {
                                 repo.update(task.copy(
-                                    status = "PENDING",
+                                    status = "RUNNING",
                                     errorMessage = null,
                                     updatedAt = System.currentTimeMillis()
                                 ))
@@ -171,7 +172,7 @@ private fun TaskCard(
             }
 
             // 操作按钮
-            if (task.status == "FAILED") {
+            if (task.status == "FAILED" || task.status == "SUCCESS") {
                 IconButton(onClick = onRetry) {
                     Icon(Icons.Default.Refresh, contentDescription = "重试",
                         tint = MaterialTheme.colorScheme.primary)
@@ -188,8 +189,7 @@ private fun TaskCard(
 @Composable
 private fun StatusLabel(status: String) {
     val (text, color) = when (status) {
-        "PENDING" -> "排队中" to MaterialTheme.colorScheme.outline
-        "RUNNING" -> "分析中…" to MaterialTheme.colorScheme.tertiary
+        "PENDING", "RUNNING" -> "分析中…" to MaterialTheme.colorScheme.tertiary
         "SUCCESS" -> "已完成" to MaterialTheme.colorScheme.primary
         "FAILED" -> "失败" to MaterialTheme.colorScheme.error
         else -> status to MaterialTheme.colorScheme.outline

@@ -6,7 +6,23 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface TaskDao {
 
-    @Query("SELECT * FROM tasks ORDER BY createdAt DESC")
+    // 列表页只需要轻量字段，避免把 resultJson/filledImageBase64 大字段全部加载导致卡顿或状态不刷新
+    @Query(
+        """
+        SELECT
+            id,
+            status,
+            thumbnailPath,
+            imagePath,
+            NULL AS resultJson,
+            NULL AS filledImageBase64,
+            errorMessage,
+            createdAt,
+            updatedAt
+        FROM tasks
+        ORDER BY createdAt DESC
+        """
+    )
     fun observeAll(): Flow<List<TaskEntity>>
 
     @Query("SELECT * FROM tasks WHERE id = :id")
