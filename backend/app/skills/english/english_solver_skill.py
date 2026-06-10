@@ -51,7 +51,7 @@ class EnglishSolverSkill:
             "1) 只输出一个 JSON 对象，不要 markdown，不要代码块，不要任何额外文字。\n"
             "2) 只允许以下字段：question_meaning_zh, reference_answer, explanation_zh, key_vocabulary, speak_units, uncertainty, answer_placements。\n"
             "3) key_vocabulary 是数组，元素字段：word, meaning_zh, ipa(可空)。\n"
-            "4) speak_units 是数组，元素字段：unit_type(只能是word或sentence), text。\n"
+            "4) speak_units 是数组，元素字段：unit_type(只能是word或sentence), text, meaning_zh(可空)。sentence 单元必须尽量给 meaning_zh 中文翻译。\n"
             "5) uncertainty 字段：requires_review(boolean), confidence(0到1), reason(可空字符串)。\n"
             "6) answer_placements 是数组，元素字段：number, text, bbox_norm, font_size_ratio(可空)。number 表示答案槽位顺序索引，不要求题面必须真的印有该数字。\n"
             "7) 字段必须齐全，不能缺失，不能新增字段。\n"
@@ -60,6 +60,9 @@ class EnglishSolverSkill:
             "10) OCR 只是辅助信息（OCR-assist）。如果 OCR 与图片冲突，以图片为准。\n"
             "11) 若题目含编号，请按检测到的编号顺序给答案；若无编号，请按题面阅读顺序给答案槽位编号（1,2,3...）。\n"
             "12) bbox_norm 是答案应回写区域的归一化框 [x0,y0,x1,y1]，相对于整张图，尽量贴近实际空白填写区，不要给过大的题图区框。\n"
+            "13) reference_answer 请尽量保持按行输出，适合前端逐行渲染；每行对应一个答案槽位，必要时保留编号。\n"
+            "14) key_vocabulary 尽量补全 reference_answer 和题干中的高频词，方便前端做行内长按释义。\n"
+            "15) speak_units 优先给出 sentence 单元，并尽量让 sentence 与前端可见的答案行保持顺序一致；sentence.text 尽量等于 reference_answer 对应行去掉编号后的英文内容，sentence.meaning_zh 给该整句中文翻译；word 单元只保留需要单独点读的重点词。\n"
             f"OCR全文如下：\n{ocr_text}\n\n"
         )
 
@@ -77,8 +80,12 @@ class EnglishSolverSkill:
                 {"word": "answer", "meaning_zh": "答案", "ipa": "/ˈɑːnsər/"}
             ],
             "speak_units": [
-                {"unit_type": "word", "text": "answer"},
-                {"unit_type": "sentence", "text": "Please complete the exercise."},
+                {"unit_type": "word", "text": "answer", "meaning_zh": "答案"},
+                {
+                    "unit_type": "sentence",
+                    "text": "Please complete the exercise.",
+                    "meaning_zh": "请完成这道练习。",
+                },
             ],
             "uncertainty": {
                 "requires_review": True,

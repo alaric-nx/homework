@@ -59,6 +59,9 @@
           "text": {
             "type": "string",
             "minLength": 1
+          },
+          "meaning_zh": {
+            "type": ["string", "null"]
           }
         }
       }

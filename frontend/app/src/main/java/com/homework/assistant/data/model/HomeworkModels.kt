@@ -29,7 +29,8 @@ data class ParseResponse(
     val explanation_zh: String = "",
     val key_vocabulary: List<VocabularyItem> = emptyList(),
     val speak_units: List<SpeakUnit> = emptyList(),
-    val uncertainty: Uncertainty = Uncertainty()
+    val uncertainty: Uncertainty = Uncertainty(),
+    val answer_placements: List<AnswerPlacement> = emptyList()
 )
 
 data class VocabularyItem(
@@ -40,8 +41,18 @@ data class VocabularyItem(
 
 data class SpeakUnit(
     val text: String = "",
+    val meaning_zh: String? = null,
     @SerializedName("unit_type")
     val type: String = "word" // "word" or "sentence"
+)
+
+data class AnswerPlacement(
+    val number: Int = 0,
+    val text: String = "",
+    @SerializedName("bbox_norm")
+    val bboxNorm: List<Float> = emptyList(),
+    @SerializedName("font_size_ratio")
+    val fontSizeRatio: Float? = null
 )
 
 data class Uncertainty(

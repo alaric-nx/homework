@@ -16,6 +16,7 @@ class SpeakUnit(BaseModel):
     model_config = ConfigDict(extra="forbid")
     unit_type: Literal["word", "sentence"]
     text: str = Field(min_length=1)
+    meaning_zh: str | None = None
 
 
 class Uncertainty(BaseModel):
