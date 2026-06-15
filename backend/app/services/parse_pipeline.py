@@ -1,35 +1,55 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 import time
+from pathlib import Path
 from typing import Any
 
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.core.models import HomeworkParseResponse, OCRResult
+from app.core.models import HomeworkParseResult
 from app.services.opencode_client import OpencodeClient
-from app.skills.common.ocr_skill import OCRSkill
 from app.skills.common.response_schema_guard import ResponseSchemaGuard
-from app.skills.common.subject_router import route_subject
-from app.skills.english.english_solver_skill import EnglishSolverSkill
 
 logger = logging.getLogger(__name__)
 
 
 class ParsePipeline:
-    TOTAL_BUDGET_SEC = 35.0
-    MIN_RETRY_REMAINING_SEC = 8.0
+    """Simplified parse pipeline.
+
+    流程：构建 prompt（含图片附件）→ 大模型视觉理解（opencode）→ schema 校验。
+    不再经过 OCR 中间步骤，模型直接读取题图；也不再生成 answer_placements 坐标。
+    """
 
     def __init__(self, opencode_client: OpencodeClient, settings: Settings) -> None:
-        self.ocr_skill = OCRSkill(settings)
+        self.opencode_client = opencode_client
+        self.settings = settings
         self.schema_guard = ResponseSchemaGuard()
-        self.english_solver = EnglishSolverSkill(opencode_client)
 
-    def _attach_ocr(
-        self, payload: HomeworkParseResponse, ocr_result: OCRResult
-    ) -> HomeworkParseResponse:
-        payload.ocr_result = ocr_result
-        return payload
+    def _build_prompt(self) -> str:
+        return (
+            "你是小学英语作业解析助手。\n"
+            "必须严格遵守：\n"
+            "1) 只输出一个 JSON 对象，不要 markdown，不要代码块，不要任何额外文字。\n"
+            "2) 只允许以下字段：question_meaning_zh, reference_answer, explanation_zh, "
+            "key_vocabulary, speak_units, uncertainty。\n"
+            "3) key_vocabulary 是数组，元素字段：word, meaning_zh, ipa(可空)。\n"
+            "4) speak_units 是数组，元素字段：unit_type(只能是word或sentence), text, "
+            "meaning_zh(可空)。sentence 单元必须尽量给 meaning_zh 中文翻译。\n"
+            "5) uncertainty 字段：requires_review(boolean), confidence(0到1), reason(可空字符串)。\n"
+            "6) 字段必须齐全，不能缺失，不能新增字段。\n"
+            "7) question_meaning_zh 必须分两行：第一行是题目中文翻译，第二行说明题目要做什么。\n"
+            "8) 你会收到题目图片附件，必须直接根据图片内容识别题目并解答（image-first，"
+            "充分利用视觉理解能力）。\n"
+            "9) 若题目含编号，请按检测到的编号顺序给出答案；若无编号，请按题面阅读顺序组织答案。\n"
+            "10) reference_answer 请尽量保持按行输出，适合前端逐行渲染；每行对应一个答案，"
+            "必要时保留编号。\n"
+            "11) key_vocabulary 尽量补全 reference_answer 和题干中的高频词，方便前端做行内长按释义。\n"
+            "12) speak_units 优先给出 sentence 单元，并尽量让 sentence 与前端可见的答案行保持顺序一致；"
+            "sentence.text 尽量等于 reference_answer 对应行去掉编号后的英文内容，"
+            "sentence.meaning_zh 给该整句中文翻译；word 单元只保留需要单独点读的重点词。\n"
+        )
 
     def _normalize_candidate(self, candidate: Any) -> Any:
         if not isinstance(candidate, dict):
@@ -41,195 +61,75 @@ class ParsePipeline:
             out["reference_answer"] = "\n".join(
                 str(x).strip() for x in ref if str(x).strip()
             )
-
-        placements = out.get("answer_placements")
-        if isinstance(placements, list):
-            normalized: list[Any] = []
-            for item in placements:
-                if not isinstance(item, dict):
-                    normalized.append(item)
-                    continue
-                p = dict(item)
-                text = p.get("text")
-                if isinstance(text, list):
-                    p["text"] = " ".join(str(x).strip() for x in text if str(x).strip())
-                fsr = p.get("font_size_ratio")
-                if isinstance(fsr, (int, float)) and fsr <= 0:
-                    p["font_size_ratio"] = None
-                normalized.append(p)
-            out["answer_placements"] = normalized
         return out
 
-    def _has_meaningful_reference_answer(self, reference_answer: Any) -> bool:
-        if not isinstance(reference_answer, str):
-            return False
-        text = reference_answer.strip()
-        if not text:
-            return False
-        if "后端占位答案" in text:
-            return False
-        return True
-
-    def _has_valid_placements(self, placements: Any) -> bool:
-        if not isinstance(placements, list):
-            return False
-        for item in placements:
-            if not isinstance(item, dict):
-                continue
-            text = str(item.get("text", "")).strip()
-            bbox = item.get("bbox_norm")
-            if text and isinstance(bbox, list) and len(bbox) == 4:
-                return True
-        return False
-
-    def _should_retry_strict(
-        self,
-        normalized_candidate: Any,
-        first_error: AppError,
-        ocr_result: OCRResult,
-        elapsed_sec: float,
-    ) -> bool:
-        remaining = self.TOTAL_BUDGET_SEC - elapsed_sec
-        if remaining < self.MIN_RETRY_REMAINING_SEC:
-            return False
-
-        if not isinstance(normalized_candidate, dict):
-            return True
-
-        required_keys = {
-            "question_meaning_zh",
-            "reference_answer",
-            "explanation_zh",
-            "key_vocabulary",
-            "speak_units",
-            "uncertainty",
+    def _fallback_output(self, reason: str | None = None) -> dict[str, Any]:
+        if reason:
+            logger.warning("parse_pipeline_fallback reason=%s", reason)
+        return {
+            "question_meaning_zh": "请根据题目完成英语作业。\n请按题目要求作答。",
+            "reference_answer": "请根据题干补全正确答案（当前为后端占位答案）。",
+            "explanation_zh": "这是兜底讲解，模型未能返回有效结果，请家长人工复核。",
+            "key_vocabulary": [
+                {"word": "answer", "meaning_zh": "答案", "ipa": "/ˈɑːnsər/"}
+            ],
+            "speak_units": [
+                {"unit_type": "word", "text": "answer", "meaning_zh": "答案"},
+                {
+                    "unit_type": "sentence",
+                    "text": "Please complete the exercise.",
+                    "meaning_zh": "请完成这道练习。",
+                },
+            ],
+            "uncertainty": {
+                "requires_review": True,
+                "confidence": 0.3,
+                "reason": reason or "使用了兜底策略，请家长人工复核。",
+            },
         }
-        if not required_keys.issubset(normalized_candidate.keys()):
-            return True
 
-        has_ref = self._has_meaningful_reference_answer(
-            normalized_candidate.get("reference_answer")
-        )
-        has_placements = self._has_valid_placements(
-            normalized_candidate.get("answer_placements")
-        )
-        if not has_ref:
-            return True
-        if not has_placements and len((ocr_result.text or "").strip()) < 40:
-            return True
+    def _write_temp_image(self, image_bytes: bytes) -> Path:
+        with tempfile.NamedTemporaryFile(
+            prefix="hw_parse_", suffix=".jpg", delete=False
+        ) as fp:
+            fp.write(image_bytes)
+            return Path(fp.name)
 
-        detail = (first_error.detail or "").lower()
-        hard_fail_tokens = (
-            "field required",
-            "missing",
-            "cannot be parsed",
-            "json",
-        )
-        if any(token in detail for token in hard_fail_tokens):
-            return True
-        return False
-
-    def _salvage_candidate(
-        self, normalized_candidate: Any, ocr_result: OCRResult, reason: str
+    async def _call_model(
+        self, prompt: str, image_bytes: bytes | None, model: str | None
     ) -> dict[str, Any]:
-        base = self.english_solver.fallback_output(ocr_result, reason=reason)
-        if not isinstance(normalized_candidate, dict):
-            return base
-
-        out = dict(base)
-        for key in ("question_meaning_zh", "reference_answer", "explanation_zh"):
-            val = normalized_candidate.get(key)
-            if isinstance(val, str) and val.strip():
-                out[key] = val.strip()
-
-        kv = normalized_candidate.get("key_vocabulary")
-        if isinstance(kv, list):
-            out["key_vocabulary"] = kv
-        su = normalized_candidate.get("speak_units")
-        if isinstance(su, list):
-            out["speak_units"] = su
-        unc = normalized_candidate.get("uncertainty")
-        if isinstance(unc, dict):
-            out["uncertainty"] = unc
-
-        placements = normalized_candidate.get("answer_placements")
-        if isinstance(placements, list):
-            cleaned: list[dict[str, Any]] = []
-            for item in placements:
-                if not isinstance(item, dict):
-                    continue
-                num = item.get("number")
-                text = item.get("text")
-                bbox = item.get("bbox_norm")
-                if not isinstance(num, int):
-                    continue
-                if not isinstance(text, str) or not text.strip():
-                    continue
-                if not isinstance(bbox, list) or len(bbox) != 4:
-                    continue
-                fsr = item.get("font_size_ratio")
-                if not isinstance(fsr, (int, float)) or fsr <= 0:
-                    fsr = None
-                cleaned.append(
-                    {
-                        "number": num,
-                        "text": text.strip(),
-                        "bbox_norm": bbox,
-                        "font_size_ratio": fsr,
-                    }
-                )
-            out["answer_placements"] = cleaned
-        return out
+        tmp_file: Path | None = None
+        try:
+            files: list[str] = []
+            if image_bytes:
+                tmp_file = self._write_temp_image(image_bytes)
+                files.append(str(tmp_file))
+            return await self.opencode_client.generate_json(
+                prompt, file_paths=files, model=model
+            )
+        finally:
+            if tmp_file is not None:
+                tmp_file.unlink(missing_ok=True)
 
     async def run(
         self,
         image_bytes: bytes | None,
-        image_url: str | None,
-        subject_hint: str | None,
-    ) -> HomeworkParseResponse:
+        model: str | None = None,
+    ) -> HomeworkParseResult:
         start_ts = time.perf_counter()
-        ocr_result = OCRResult(text="", confidence=0.0)
-        try:
-            ocr_result = await self.ocr_skill.extract_text(
-                image_bytes=image_bytes,
-                image_url=image_url,
-            )
-            logger.info(
-                "pipeline_step ocr elapsed=%.2fs confidence=%.3f text_len=%s blocks=%s",
-                time.perf_counter() - start_ts,
-                ocr_result.confidence,
-                len(ocr_result.text),
-                len(ocr_result.blocks),
-            )
-        except AppError as exc:
-            # image-first strategy: OCR 失败不阻断后续解题
-            logger.warning("pipeline_step ocr_failed detail=%s", exc.detail)
-        subject = subject_hint or "english"
-        logger.info(
-            "pipeline_step route_subject elapsed=%.2fs", time.perf_counter() - start_ts
-        )
-        if subject != "english":
-            raise AppError(
-                "UNSUPPORTED_SUBJECT",
-                f"Current MVP only supports english; got {subject}.",
-            )
+        prompt = self._build_prompt()
 
         model_failure_reason = ""
         try:
-            candidate = await self.english_solver.solve(
-                ocr_result,
-                image_bytes=image_bytes,
-                image_url=image_url,
-                strict_mode=False,
-            )
+            candidate = await self._call_model(prompt, image_bytes, model)
             logger.info(
-                "pipeline_step opencode elapsed=%.2fs", time.perf_counter() - start_ts
+                "pipeline_step opencode elapsed=%.2fs model=%s",
+                time.perf_counter() - start_ts,
+                (model or "").strip() or "<default>",
             )
         except AppError as exc:
             model_failure_reason = exc.detail
-            candidate = self.english_solver.fallback_output(
-                ocr_result, reason=exc.detail
-            )
+            candidate = self._fallback_output(reason=exc.detail)
 
         normalized_candidate = self._normalize_candidate(candidate)
         try:
@@ -238,85 +138,18 @@ class ParsePipeline:
                 "pipeline_step schema_validate elapsed=%.2fs",
                 time.perf_counter() - start_ts,
             )
-            return self._attach_ocr(validated, ocr_result)
+            return validated
         except AppError as first_error:
-            if model_failure_reason:
-                # model call already failed; strict retry is unlikely to help
-                fallback = self.english_solver.fallback_output(
-                    ocr_result, reason=model_failure_reason
-                )
-                validated = self.schema_guard.validate_payload(fallback)
-                logger.info(
-                    "pipeline_step schema_validate_fallback elapsed=%.2fs",
-                    time.perf_counter() - start_ts,
-                )
-                return self._attach_ocr(validated, ocr_result)
-            elapsed = time.perf_counter() - start_ts
-            if not self._should_retry_strict(
-                normalized_candidate,
-                first_error,
-                ocr_result,
-                elapsed_sec=elapsed,
-            ):
-                logger.warning(
-                    "schema_validate_skip_strict_retry elapsed=%.2fs detail=%s",
-                    elapsed,
-                    first_error.detail,
-                )
-                salvaged = self._salvage_candidate(
-                    normalized_candidate,
-                    ocr_result,
-                    reason="模型输出结构存在问题，已跳过严格重试并进行本地修复。",
-                )
-                validated = self.schema_guard.validate_payload(salvaged)
-                logger.info(
-                    "pipeline_step schema_validate_skip_retry_fallback elapsed=%.2fs",
-                    time.perf_counter() - start_ts,
-                )
-                return self._attach_ocr(validated, ocr_result)
-            try:
-                candidate_retry = await self.english_solver.solve(
-                    ocr_result,
-                    image_bytes=image_bytes,
-                    image_url=image_url,
-                    strict_mode=True,
-                )
-                logger.info(
-                    "pipeline_step opencode_strict elapsed=%.2fs",
-                    time.perf_counter() - start_ts,
-                )
-            except AppError as retry_exc:
-                fallback = self.english_solver.fallback_output(
-                    ocr_result, reason=retry_exc.detail
-                )
-                validated = self.schema_guard.validate_payload(fallback)
-                logger.info(
-                    "pipeline_step schema_validate_retry_fallback elapsed=%.2fs",
-                    time.perf_counter() - start_ts,
-                )
-                return self._attach_ocr(validated, ocr_result)
-            try:
-                validated = self.schema_guard.validate_payload(
-                    self._normalize_candidate(candidate_retry)
-                )
-                logger.info(
-                    "pipeline_step schema_validate_retry elapsed=%.2fs",
-                    time.perf_counter() - start_ts,
-                )
-                return self._attach_ocr(validated, ocr_result)
-            except AppError as second_error:
-                logger.warning(
-                    "schema_validation_failed first=%s second=%s",
-                    first_error.detail,
-                    second_error.detail,
-                )
-                fallback = self.english_solver.fallback_output(
-                    ocr_result,
-                    reason="模型输出未满足固定 JSON 结构，已自动切换兜底结果。",
-                )
-                validated = self.schema_guard.validate_payload(fallback)
-                logger.info(
-                    "pipeline_step schema_validate_final_fallback elapsed=%.2fs",
-                    time.perf_counter() - start_ts,
-                )
-                return self._attach_ocr(validated, ocr_result)
+            reason = model_failure_reason or (
+                "模型输出未满足固定 JSON 结构，已自动切换兜底结果。"
+            )
+            logger.warning(
+                "schema_validation_failed detail=%s", first_error.detail
+            )
+            fallback = self._fallback_output(reason=reason)
+            validated = self.schema_guard.validate_payload(fallback)
+            logger.info(
+                "pipeline_step schema_validate_fallback elapsed=%.2fs",
+                time.perf_counter() - start_ts,
+            )
+            return validated

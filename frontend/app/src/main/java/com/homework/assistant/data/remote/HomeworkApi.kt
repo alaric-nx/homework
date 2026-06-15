@@ -1,8 +1,8 @@
 package com.homework.assistant.data.remote
 
 import com.google.gson.Gson
-import com.homework.assistant.data.model.ApiResponse
-import com.homework.assistant.data.model.ParseResponse
+import com.homework.assistant.data.model.SubmitResponse
+import com.homework.assistant.data.model.TaskStatusResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -11,6 +11,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
 import java.io.IOException
+import java.net.URLEncoder
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
@@ -19,9 +20,14 @@ import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
 /**
- * 后端 API 客户端
- * 对接 POST /v1/homework/parse-fill?expected_type=english
- * Content-Type: image/jpeg，body 为图片二进制
+ * HTTP 状态异常，携带后端返回的状态码，便于调用方区分 404（任务已过期）等场景。
+ */
+class HttpStatusException(val code: Int, message: String) : IOException(message)
+
+/**
+ * 后端 API 客户端（异步提交 + 轮询模式）
+ * - POST /v1/homework/parse?model=xxx  Content-Type: image/jpeg，body 为图片二进制 → 202 SubmitResponse
+ * - GET  /v1/homework/tasks/{task_id}  → 200 TaskStatusResponse / 404 TASK_NOT_FOUND
  */
 class HomeworkApi(
     private val baseUrl: String = "https://hs.for2.top:44443"
@@ -49,32 +55,74 @@ class HomeworkApi(
     private val gson = Gson()
 
     /**
-     * 上传合并后的题图，返回解析结果（含填写后图片）
+     * 异步提交解析请求：上传题图二进制，立即返回 task_id。
+     * @param imageFile 合并压缩后的题图（JPEG）
+     * @param model     指定模型名称，可为空字符串（为空时省略 model query 参数，由后端使用默认模型）
      */
-    suspend fun parseHomework(imageFile: File): Result<ApiResponse> = withContext(Dispatchers.IO) {
-        try {
-            val body = imageFile.asRequestBody("image/jpeg".toMediaType())
+    suspend fun submitParse(imageFile: File, model: String): Result<SubmitResponse> =
+        withContext(Dispatchers.IO) {
+            try {
+                val body = imageFile.asRequestBody("image/jpeg".toMediaType())
 
-            val request = Request.Builder()
-                .url("$baseUrl/v1/homework/parse-fill?expected_type=english")
-                .post(body)
-                .build()
+                val urlBuilder = StringBuilder("$baseUrl/v1/homework/parse")
+                if (model.isNotBlank()) {
+                    urlBuilder.append("?model=")
+                        .append(URLEncoder.encode(model, "UTF-8"))
+                }
+                val url = urlBuilder.toString()
 
-            val url = request.url.toString()
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(
-                    IOException("服务器返回 ${response.code}\n$url")
-                )
+                val request = Request.Builder()
+                    .url(url)
+                    .post(body)
+                    .build()
+
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        HttpStatusException(response.code, "服务器返回 ${response.code}\n$url")
+                    )
+                }
+
+                val responseBody = response.body?.string()
+                    ?: return@withContext Result.failure(IOException("响应为空"))
+
+                val parsed = gson.fromJson(responseBody, SubmitResponse::class.java)
+                Result.success(parsed)
+            } catch (e: Exception) {
+                Result.failure(e)
             }
-
-            val responseBody = response.body?.string()
-                ?: return@withContext Result.failure(IOException("响应为空"))
-
-            val parsed = gson.fromJson(responseBody, ApiResponse::class.java)
-            Result.success(parsed)
-        } catch (e: Exception) {
-            Result.failure(e)
         }
-    }
+
+    /**
+     * 轮询任务状态。
+     * @param taskId 提交阶段返回的 task_id
+     * @return 成功时返回 TaskStatusResponse；任务不存在时 failure 为 HttpStatusException(code = 404)
+     */
+    suspend fun pollTask(taskId: String): Result<TaskStatusResponse> =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = "$baseUrl/v1/homework/tasks/" +
+                    URLEncoder.encode(taskId, "UTF-8")
+
+                val request = Request.Builder()
+                    .url(url)
+                    .get()
+                    .build()
+
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        HttpStatusException(response.code, "服务器返回 ${response.code}\n$url")
+                    )
+                }
+
+                val responseBody = response.body?.string()
+                    ?: return@withContext Result.failure(IOException("响应为空"))
+
+                val parsed = gson.fromJson(responseBody, TaskStatusResponse::class.java)
+                Result.success(parsed)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
 }

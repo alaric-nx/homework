@@ -1,20 +1,25 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import logging
-import time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import JSONResponse
 
-from app.api.deps import get_pipeline
+from app.api.deps import get_pipeline, get_task_store
 from app.core.errors import AppError
-from app.core.models import HomeworkParseFillResponse, HomeworkParseResponse
-from app.services.answer_fill_service import AnswerFillService
+from app.core.models import (
+    ParseSubmitResponse,
+    TaskStatus,
+    TaskStatusResponse,
+)
 from app.services.parse_pipeline import ParsePipeline
+from app.services.task_store import TaskStore
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-answer_fill_service = AnswerFillService()
 
 
 @router.get("/healthz")
@@ -22,110 +27,116 @@ async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.get("/v1/ocr/providers")
-async def ocr_providers(
-    pipeline: Annotated[ParsePipeline, Depends(get_pipeline)],
-) -> dict[str, object]:
-    return {"providers": pipeline.ocr_skill.list_providers()}
+async def _run_parse_task(
+    task_store: TaskStore,
+    pipeline: ParsePipeline,
+    task_id: str,
+    image_bytes: bytes,
+    model: str | None,
+) -> None:
+    """Background coroutine that runs the parse pipeline and updates task state."""
+    await task_store.update_status(task_id, TaskStatus.PROCESSING)
+    try:
+        result = await pipeline.run(image_bytes=image_bytes, model=model)
+        await task_store.update_status(
+            task_id, TaskStatus.COMPLETED, result=result
+        )
+    except AppError as exc:
+        logger.warning(
+            "parse_task_failed task_id=%s error_code=%s detail=%s",
+            task_id,
+            exc.code,
+            exc.detail,
+        )
+        await task_store.update_status(
+            task_id,
+            TaskStatus.FAILED,
+            error_code=exc.code,
+            error_message=exc.detail,
+        )
+    except Exception as exc:  # pragma: no cover - defensive guard
+        logger.exception("parse_task_unexpected_error task_id=%s", task_id)
+        await task_store.update_status(
+            task_id,
+            TaskStatus.FAILED,
+            error_code="INTERNAL_ERROR",
+            error_message=str(exc),
+        )
 
 
-@router.post("/v1/homework/parse", response_model=HomeworkParseResponse)
-async def parse_homework(
+@router.post(
+    "/v1/homework/parse",
+    response_model=ParseSubmitResponse,
+    status_code=202,
+)
+async def submit_parse(
     pipeline: Annotated[ParsePipeline, Depends(get_pipeline)],
+    task_store: Annotated[TaskStore, Depends(get_task_store)],
     request: Request,
-    expected_type: str | None = Query(default=None),
-    image_url: str | None = Query(default=None),
-) -> HomeworkParseResponse:
+    model: str | None = Query(default=None),
+) -> ParseSubmitResponse:
     content_type = (request.headers.get("content-type") or "").lower()
     body = await request.body()
 
-    # Preferred mode: send raw image bytes with content-type image/* or application/octet-stream.
-    if body and (
-        "image/" in content_type or "application/octet-stream" in content_type
+    if not body or (
+        "image/" not in content_type
+        and "application/octet-stream" not in content_type
     ):
-        logger.info(
-            "parse_request_received mode=binary content_type=%s size=%s",
-            content_type,
-            len(body),
-        )
-        image_bytes = body
-        start_ts = time.perf_counter()
-        result = await pipeline.run(
-            image_bytes=image_bytes, image_url=image_url, subject_hint=expected_type
-        )
-        logger.info("request_total parse elapsed=%.2fs", time.perf_counter() - start_ts)
-        return result
-
-    # Compatibility mode: JSON with image_url (no base64).
-    if "application/json" in content_type:
-        payload = await request.json()
-        parsed_image_url = (
-            payload.get("image_url") if isinstance(payload, dict) else None
-        )
-        parsed_expected_type = (
-            payload.get("expected_type") if isinstance(payload, dict) else None
-        )
-        logger.info(
-            "parse_request_received mode=json image_url=%s", bool(parsed_image_url)
-        )
-        start_ts = time.perf_counter()
-        result = await pipeline.run(
-            image_bytes=None,
-            image_url=parsed_image_url or image_url,
-            subject_hint=parsed_expected_type or expected_type,
-        )
-        logger.info("request_total parse elapsed=%.2fs", time.perf_counter() - start_ts)
-        return result
-
-    # Fallback: if raw bytes exist but content-type is unknown, still treat as image bytes.
-    if body:
-        logger.info(
-            "parse_request_received mode=raw_unknown_content_type size=%s", len(body)
-        )
-        start_ts = time.perf_counter()
-        result = await pipeline.run(
-            image_bytes=body, image_url=image_url, subject_hint=expected_type
-        )
-        logger.info("request_total parse elapsed=%.2fs", time.perf_counter() - start_ts)
-        return result
-
-    raise AppError(
-        "INVALID_REQUEST",
-        "Please send raw image bytes in request body (content-type: image/jpeg|image/png|application/octet-stream).",
-    )
-
-
-@router.post("/v1/homework/parse-fill", response_model=HomeworkParseFillResponse)
-async def parse_and_fill_homework(
-    pipeline: Annotated[ParsePipeline, Depends(get_pipeline)],
-    request: Request,
-    expected_type: str | None = Query(default="english"),
-    image_url: str | None = Query(default=None),
-) -> HomeworkParseFillResponse:
-    content_type = (request.headers.get("content-type") or "").lower()
-    body = await request.body()
-    if not body:
         raise AppError(
-            "INVALID_REQUEST", "Please send raw image bytes in request body."
-        )
-    if "image/" not in content_type and "application/octet-stream" not in content_type:
-        logger.info(
-            "parse_fill_unknown_content_type content_type=%s; still trying as binary",
-            content_type,
+            "INVALID_REQUEST",
+            "Please send raw image bytes in request body "
+            "(content-type: image/jpeg|image/png|application/octet-stream).",
         )
 
-    start_ts = time.perf_counter()
-    result = await pipeline.run(
-        image_bytes=body, image_url=image_url, subject_hint=expected_type
+    image_hash = hashlib.md5(body).hexdigest()
+    model_value = (model or "").strip()
+    task = await task_store.create(image_hash=image_hash, model=model_value)
+
+    asyncio.create_task(
+        _run_parse_task(
+            task_store=task_store,
+            pipeline=pipeline,
+            task_id=task.task_id,
+            image_bytes=body,
+            model=model_value or None,
+        )
     )
-    logger.info("request_total parse elapsed=%.2fs", time.perf_counter() - start_ts)
-    fill_ts = time.perf_counter()
-    filled_image_base64, filled_image_path = (
-        answer_fill_service.fill_answers_to_image_base64_and_file(body, result)
+
+    logger.info(
+        "parse_submitted task_id=%s image_hash=%s model=%s size=%s",
+        task.task_id,
+        image_hash,
+        model_value or "<default>",
+        len(body),
     )
-    logger.info("request_total fill elapsed=%.2fs", time.perf_counter() - fill_ts)
-    return HomeworkParseFillResponse(
-        result=result,
-        filled_image_base64=filled_image_base64,
-        filled_image_path=filled_image_path,
+    return ParseSubmitResponse(
+        task_id=task.task_id,
+        status=task.status.value,
+        image_hash=image_hash,
+    )
+
+
+@router.get("/v1/homework/tasks/{task_id}", response_model=TaskStatusResponse)
+async def get_task(
+    task_store: Annotated[TaskStore, Depends(get_task_store)],
+    task_id: str,
+):
+    task = await task_store.get(task_id)
+    if task is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error_code": "TASK_NOT_FOUND",
+                "message": "Task with given ID does not exist.",
+            },
+        )
+
+    return TaskStatusResponse(
+        task_id=task.task_id,
+        status=task.status.value,
+        image_hash=task.image_hash,
+        model=task.model or "default",
+        result=task.result,
+        error_code=task.error_code,
+        error_message=task.error_message,
     )

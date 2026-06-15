@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -21,6 +22,7 @@ import com.homework.assistant.ui.crop.CropScreen
 import com.homework.assistant.ui.merge.MergeScreen
 import com.homework.assistant.ui.merge.ResultHolder
 import com.homework.assistant.ui.result.ResultScreen
+import com.homework.assistant.ui.settings.SettingsScreen
 import com.homework.assistant.ui.tasklist.TaskListScreen
 import com.homework.assistant.util.ImageUtils
 import kotlinx.coroutines.Dispatchers
@@ -32,7 +34,8 @@ private data class BottomTab(val route: String, val label: String, val icon: and
 
 private val TABS = listOf(
     BottomTab("capture", "拍题", Icons.Default.CameraAlt),
-    BottomTab("taskList", "任务", Icons.Default.List)
+    BottomTab("taskList", "任务", Icons.Default.List),
+    BottomTab("settings", "设置", Icons.Default.Settings)
 )
 
 @Composable
@@ -53,7 +56,6 @@ fun HomeworkApp() {
         selectedImageUri.clear()
         cropTargetIndex.intValue = -1
         ResultHolder.latestResult = null
-        ResultHolder.filledImageBase64 = null
     }
 
     /** 统一的 tab 切换：清栈到 capture，再跳目标 */
@@ -66,7 +68,7 @@ fun HomeworkApp() {
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    val showBottomBar = currentRoute in listOf("capture", "taskList")
+    val showBottomBar = currentRoute in listOf("capture", "taskList", "settings")
 
     Scaffold(
         bottomBar = {
@@ -203,6 +205,10 @@ fun HomeworkApp() {
                         navController.navigate("result/$taskId")
                     }
                 )
+            }
+
+            composable("settings") {
+                SettingsScreen()
             }
 
             composable("result/{taskId}") { backStackEntry ->

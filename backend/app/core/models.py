@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import time
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -26,33 +29,6 @@ class Uncertainty(BaseModel):
     reason: str | None = None
 
 
-class AnswerPlacement(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    number: int = Field(ge=1, le=99)
-    text: str = Field(min_length=1)
-    bbox_norm: list[float] = Field(min_length=4, max_length=4)
-    font_size_ratio: float | None = Field(default=None, ge=0.005, le=0.2)
-
-
-class HomeworkParseResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    question_meaning_zh: str = Field(min_length=1)
-    reference_answer: str = Field(min_length=1)
-    explanation_zh: str = Field(min_length=1)
-    key_vocabulary: list[VocabularyItem] = Field(default_factory=list)
-    speak_units: list[SpeakUnit] = Field(default_factory=list)
-    uncertainty: Uncertainty = Field(default_factory=Uncertainty)
-    answer_placements: list[AnswerPlacement] = Field(default_factory=list)
-    ocr_result: OCRResult | None = None
-
-
-class HomeworkParseFillResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    result: HomeworkParseResponse
-    filled_image_base64: str
-    filled_image_path: str
-
-
 class ErrorResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     error_code: str
@@ -60,20 +36,56 @@ class ErrorResponse(BaseModel):
     request_id: str
 
 
-class OCRBlock(BaseModel):
+class HomeworkParseResult(BaseModel):
+    """Simplified parse output schema.
+
+    仅包含 6 个固定字段，不含 answer_placements 和 ocr_result。
+    """
+
     model_config = ConfigDict(extra="forbid")
-    text: str = ""
-    bbox: list[float] | None = None
-    polygon: list[list[float]] = Field(default_factory=list)
-    label: str | None = None
-    order: int | None = None
-    page: int | None = None
+    question_meaning_zh: str = Field(min_length=1)
+    reference_answer: str = Field(min_length=1)
+    explanation_zh: str = Field(min_length=1)
+    key_vocabulary: list[VocabularyItem] = Field(default_factory=list)
+    speak_units: list[SpeakUnit] = Field(default_factory=list)
+    uncertainty: Uncertainty = Field(default_factory=Uncertainty)
 
 
-class OCRResult(BaseModel):
+class TaskStatus(str, Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+@dataclass
+class Task:
+    """Internal task state for async parse workflow."""
+
+    task_id: str
+    status: TaskStatus
+    image_hash: str
+    model: str
+    created_at: float = field(default_factory=time.time)
+    updated_at: float = field(default_factory=time.time)
+    result: HomeworkParseResult | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+class ParseSubmitResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    text: str = ""
-    confidence: float = Field(ge=0.0, le=1.0, default=0.0)
-    image_width: int | None = None
-    image_height: int | None = None
-    blocks: list[OCRBlock] = Field(default_factory=list)
+    task_id: str
+    status: str
+    image_hash: str
+
+
+class TaskStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    task_id: str
+    status: str
+    image_hash: str
+    model: str
+    result: HomeworkParseResult | None = None
+    error_code: str | None = None
+    error_message: str | None = None

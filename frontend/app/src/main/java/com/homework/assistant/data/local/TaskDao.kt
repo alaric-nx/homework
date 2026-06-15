@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface TaskDao {
 
-    // 列表页只需要轻量字段，避免把 resultJson/filledImageBase64 大字段全部加载导致卡顿或状态不刷新
+    // 列表页只需要轻量字段，避免把 resultJson 大字段全部加载导致卡顿或状态不刷新
     @Query(
         """
         SELECT
@@ -15,7 +15,6 @@ interface TaskDao {
             thumbnailPath,
             imagePath,
             NULL AS resultJson,
-            NULL AS filledImageBase64,
             errorMessage,
             createdAt,
             updatedAt

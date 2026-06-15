@@ -20,7 +20,10 @@ class OpencodeClient:
         self.settings = settings
 
     async def generate_json(
-        self, prompt: str, file_paths: list[str] | None = None
+        self,
+        prompt: str,
+        file_paths: list[str] | None = None,
+        model: str | None = None,
     ) -> dict[str, Any]:
         if not self.settings.opencode_enabled:
             raise AppError(
@@ -30,9 +33,12 @@ class OpencodeClient:
 
         env = self._build_env()
 
+        # Prefer the explicitly provided model; fall back to the configured default.
+        effective_model = (model or "").strip() or self.settings.opencode_model.strip()
+
         cmd = [self.settings.opencode_cmd, "run", "--format", "json"]
-        if self.settings.opencode_model.strip():
-            cmd.extend(["--model", self.settings.opencode_model.strip()])
+        if effective_model:
+            cmd.extend(["--model", effective_model])
         for path in file_paths or []:
             cmd.extend(["--file", path])
         # Ensure positional prompt is not consumed by --file array parsing.
@@ -40,7 +46,7 @@ class OpencodeClient:
         logger.info(
             "opencode_cmd_prepared files=%s model=%s",
             len(file_paths or []),
-            self.settings.opencode_model or "<default>",
+            effective_model or "<default>",
         )
 
         start_time = asyncio.get_event_loop().time()

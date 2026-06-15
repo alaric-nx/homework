@@ -2,14 +2,10 @@
 
 package com.homework.assistant.ui.result
 
-import android.graphics.BitmapFactory
-import android.util.Base64
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,23 +51,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.google.gson.Gson
 import com.homework.assistant.HomeworkApplication
 import com.homework.assistant.R
-import com.homework.assistant.data.model.ParseResponse
+import com.homework.assistant.data.model.ParseResult
 import com.homework.assistant.data.model.SpeakUnit
 import com.homework.assistant.data.model.VocabularyItem
 import kotlinx.coroutines.coroutineScope
@@ -131,8 +120,7 @@ fun ResultScreen(
 
     LaunchedEffect(Unit) { ttsManager.ensureInit(context) }
 
-    var result by remember { mutableStateOf<ParseResponse?>(null) }
-    var filledImageBase64 by remember { mutableStateOf<String?>(null) }
+    var result by remember { mutableStateOf<ParseResult?>(null) }
     var loading by remember { mutableStateOf(true) }
     var activeTip by remember { mutableStateOf<WordTipTarget?>(null) }
     var activeSentenceTip by remember { mutableStateOf<SentenceTipTarget?>(null) }
@@ -140,8 +128,7 @@ fun ResultScreen(
     LaunchedEffect(taskId) {
         val task = repo.getById(taskId)
         if (task != null && task.resultJson != null) {
-            result = gson.fromJson(task.resultJson, ParseResponse::class.java)
-            filledImageBase64 = task.filledImageBase64
+            result = gson.fromJson(task.resultJson, ParseResult::class.java)
         }
         loading = false
     }
@@ -174,16 +161,6 @@ fun ResultScreen(
                     val key = normalizeWord(unit.text)
                     key.isNotEmpty() && key !in answerWordKeys && key !in vocabWordKeys
                 }
-            }
-        }
-    }
-    val filledBitmap = remember(filledImageBase64) {
-        filledImageBase64?.let {
-            try {
-                val bytes = Base64.decode(it, Base64.DEFAULT)
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            } catch (_: Exception) {
-                null
             }
         }
     }
@@ -252,9 +229,6 @@ fun ResultScreen(
                 ) {
                     if (r.uncertainty.requires_review && !r.uncertainty.warning.isNullOrEmpty()) {
                         item { UncertaintyBanner(r.uncertainty.warning!!) }
-                    }
-                    if (filledBitmap != null) {
-                        item { ZoomableFilledImage(filledBitmap) }
                     }
                     item { SectionCard(stringResource(R.string.question_meaning), r.question_meaning_zh) }
                     item {
@@ -327,68 +301,6 @@ fun ResultScreen(
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ZoomableFilledImage(bitmap: android.graphics.Bitmap) {
-    var scale by remember { mutableStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
-    var containerSize by remember { mutableStateOf(IntSize.Zero) }
-    val imgRatio = bitmap.width.toFloat() / bitmap.height.toFloat()
-
-    fun clampOffset(s: Float, o: Offset): Offset {
-        if (containerSize.width == 0 || containerSize.height == 0) return o
-        val cw = containerSize.width.toFloat()
-        val imgH = cw / imgRatio
-        val maxX = ((cw * s - cw) / 2f).coerceAtLeast(0f)
-        val maxY = ((imgH * s - imgH) / 2f).coerceAtLeast(0f)
-        return Offset(o.x.coerceIn(-maxX, maxX), o.y.coerceIn(-maxY, maxY))
-    }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = ResultCardShape,
-        colors = CardDefaults.cardColors(containerColor = CardSurface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        border = BorderStroke(1.dp, CardBorder)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                "填写后题图",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF174A7C)
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clipToBounds()
-                    .onSizeChanged { containerSize = it }
-                    .pointerInput(Unit) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            val newScale = (scale * zoom).coerceIn(1f, 5f)
-                            scale = newScale
-                            offset = clampOffset(newScale, offset + pan)
-                        }
-                    }
-            ) {
-                Image(
-                    bitmap = bitmap.asImageBitmap(),
-                    contentDescription = "填写后题图",
-                    contentScale = ContentScale.FillWidth,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                            translationX = offset.x
-                            translationY = offset.y
-                        }
-                )
             }
         }
     }

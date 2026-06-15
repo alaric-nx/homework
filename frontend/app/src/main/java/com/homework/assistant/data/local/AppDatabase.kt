@@ -5,7 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [TaskEntity::class], version = 1, exportSchema = false)
+@Database(entities = [TaskEntity::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
 
@@ -18,7 +18,11 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "homework.db"
-                ).build().also { INSTANCE = it }
+                )
+                    // 移除 filledImageBase64 列属于破坏性 schema 变更；
+                    // 历史任务为本地缓存且最多保留 10 条，直接销毁重建可接受。
+                    .fallbackToDestructiveMigration(true)
+                    .build().also { INSTANCE = it }
             }
     }
 }

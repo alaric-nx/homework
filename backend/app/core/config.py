@@ -66,6 +66,8 @@ class Settings:
     paddleocr_access_token: str = ""
     paddleocr_timeout_sec: int = 120
     opencode_raw_log_dir: str = "logs/opencode"
+    task_timeout_sec: int = 60
+    task_retention_sec: int = 600
 
 
 @lru_cache(maxsize=1)
@@ -92,4 +94,6 @@ def get_settings() -> Settings:
         paddleocr_access_token=os.getenv("PADDLEOCR_ACCESS_TOKEN", "").strip(),
         paddleocr_timeout_sec=int(os.getenv("PADDLEOCR_TIMEOUT", "120")),
         opencode_raw_log_dir=os.getenv("HW_OPENCODE_RAW_LOG_DIR", "logs/opencode"),
+        task_timeout_sec=int(os.getenv("HW_TASK_TIMEOUT_SEC", "60")),
+        task_retention_sec=int(os.getenv("HW_TASK_RETENTION_SEC", "600")),
     )

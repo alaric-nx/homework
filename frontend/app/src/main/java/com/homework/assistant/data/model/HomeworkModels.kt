@@ -12,25 +12,45 @@ data class CropSegment(
 )
 
 /**
- * /v1/homework/parse-fill 外层响应
+ * POST /v1/homework/parse 异步提交响应（202 Accepted）
  */
-data class ApiResponse(
-    val result: ParseResponse = ParseResponse(),
-    val filled_image_base64: String? = null,
-    val filled_image_path: String? = null
+data class SubmitResponse(
+    @SerializedName("task_id")
+    val taskId: String = "",
+    val status: String = "",
+    @SerializedName("image_hash")
+    val imageHash: String = ""
 )
 
 /**
- * 后端解析响应（内层 result）
+ * GET /v1/homework/tasks/{task_id} 轮询响应
+ * status ∈ pending / processing / completed / failed
+ * completed 时 result 非空；failed 时 errorCode / errorMessage 非空
  */
-data class ParseResponse(
+data class TaskStatusResponse(
+    @SerializedName("task_id")
+    val taskId: String = "",
+    val status: String = "",
+    @SerializedName("image_hash")
+    val imageHash: String = "",
+    val model: String = "default",
+    val result: ParseResult? = null,
+    @SerializedName("error_code")
+    val errorCode: String? = null,
+    @SerializedName("error_message")
+    val errorMessage: String? = null
+)
+
+/**
+ * 解析结果（异步接口，移除 answer_placements / filled_image 相关字段）
+ */
+data class ParseResult(
     val question_meaning_zh: String = "",
     val reference_answer: String = "",
     val explanation_zh: String = "",
     val key_vocabulary: List<VocabularyItem> = emptyList(),
     val speak_units: List<SpeakUnit> = emptyList(),
-    val uncertainty: Uncertainty = Uncertainty(),
-    val answer_placements: List<AnswerPlacement> = emptyList()
+    val uncertainty: Uncertainty = Uncertainty()
 )
 
 data class VocabularyItem(
@@ -44,15 +64,6 @@ data class SpeakUnit(
     val meaning_zh: String? = null,
     @SerializedName("unit_type")
     val type: String = "word" // "word" or "sentence"
-)
-
-data class AnswerPlacement(
-    val number: Int = 0,
-    val text: String = "",
-    @SerializedName("bbox_norm")
-    val bboxNorm: List<Float> = emptyList(),
-    @SerializedName("font_size_ratio")
-    val fontSizeRatio: Float? = null
 )
 
 data class Uncertainty(
