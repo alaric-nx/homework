@@ -18,9 +18,23 @@
 - 语音：Android `TextToSpeech`（延迟初始化，Activity context，多引擎回退）
 - 网络：OkHttp，SSL 证书忽略，readTimeout 120s
 - 后端地址：`https://hs.for2.top:44443`
-- API：`POST /v1/homework/parse-fill?expected_type=english`，Content-Type: image/jpeg，raw body
+- API（异步提交 + 轮询）：
+  - `POST /v1/homework/parse?model=<可选模型名>`，Content-Type: image/jpeg，raw body → `{ task_id, status, image_hash }`
+  - `GET /v1/homework/tasks/{task_id}` → `{ task_id, status, image_hash, model, result?, error_code?, error_message? }`
+- 模型名：由设置页配置并持久化（`SettingsStore`，SharedPreferences），提交时透传给后端
 - 数据库：Room（任务持久化，最多 10 条，自动淘汰最早记录）
-- 后台任务：WorkManager（UploadWorker，自动重试 1 次 EXPONENTIAL backoff，失败后手动重试）
+- 后台任务：WorkManager（UploadWorker：submit → 轮询 2s×35≈70s，提交阶段网络错误重试 1 次，超时/404/failed 直接置 FAILED）
+
+## 构建与测试（编译方法）
+- 在 `frontend/` 目录下使用 Gradle Wrapper：
+  ```bash
+  cd frontend
+  ./gradlew :app:compileDebugKotlin   # 仅编译 Kotlin（最快验证）
+  ./gradlew :app:assembleDebug        # 打包 debug APK
+  ./gradlew :app:testDebugUnitTest    # 单元测试（当前无 test 源集时为空跑）
+  ```
+- 说明：当前 `app/src` 仅有 `main` 源集，暂无单元测试源集
+- 工具链提示：JDK 25 下 Kotlin 会回退到 JVM_24 target（无害警告）
 
 ## 功能状态
 - [x] 前端技术路线已确定（Kotlin 原生）

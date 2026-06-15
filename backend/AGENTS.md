@@ -53,6 +53,19 @@
 - 优先级：进程环境变量 > `.env` > `config.env`
 - `backend/start_backend.sh` 已按上述顺序加载配置
 
+## 构建与测试（编译方法）
+- 运行环境：Python 3.12（pyenv），无 venv，直接使用系统/ pyenv 解释器
+- 安装依赖（如未安装）：在 `backend/` 下 `python -m pip install -r requirements.txt`
+- 运行测试套件：在 `backend/` 下执行
+  ```bash
+  cd backend
+  python -m pytest -q
+  ```
+- 单文件/单用例：`python -m pytest tests/test_parse_api.py -q`
+- 导入冒烟检查：`python -c "from app.main import app"`
+- 启动服务：`bash backend/start_backend.sh`（先加载 config.env，再加载 .env 覆盖）
+- 说明：测试不依赖外部 opencode / 网络（opencode 调用在用例中被 mock 或通过 `HW_OPENCODE_ENABLED` 控制）
+
 ## 返回 JSON 目标字段
 - `question_meaning_zh`
 - `reference_answer`
