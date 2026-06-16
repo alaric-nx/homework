@@ -1,0 +1,305 @@
+{
+  "schema_version": 2,
+  "task_id": "ddfe42a4263caeeabd11dc8ea3a886c2",
+  "status": "completed",
+  "image_hash": "ddfe42a4263caeeabd11dc8ea3a886c2",
+  "model": "gemini-3.5-flash-low",
+  "created_at": 1781592223.00877,
+  "updated_at": 1781592235.5495245,
+  "result": {
+    "question_meaning_zh": "第一行：根据我们必须做和禁止做的事情完成句子，然后将图片与上述句子相匹配，在方框中写出正确的数字。\n第二行：在1-6题的空格中填入“must”或“mustn't”使句子完整，并在下方对应的图片方框中写上句子编号（其中图片e为干扰项，不填）。",
+    "answer_lines": [
+      {
+        "number": "1",
+        "line_type": "fill_blank",
+        "plain_text": "We mustn't spit.",
+        "segments": [
+          {
+            "text": "We ",
+            "role": "given"
+          },
+          {
+            "text": "mustn't",
+            "role": "answer"
+          },
+          {
+            "text": " spit.",
+            "role": "given"
+          }
+        ]
+      },
+      {
+        "number": "2",
+        "line_type": "fill_blank",
+        "plain_text": "We must line up.",
+        "segments": [
+          {
+            "text": "We ",
+            "role": "given"
+          },
+          {
+            "text": "must",
+            "role": "answer"
+          },
+          {
+            "text": " line up.",
+            "role": "given"
+          }
+        ]
+      },
+      {
+        "number": "3",
+        "line_type": "fill_blank",
+        "plain_text": "We mustn't litter.",
+        "segments": [
+          {
+            "text": "We ",
+            "role": "given"
+          },
+          {
+            "text": "mustn't",
+            "role": "answer"
+          },
+          {
+            "text": " litter.",
+            "role": "given"
+          }
+        ]
+      },
+      {
+        "number": "4",
+        "line_type": "fill_blank",
+        "plain_text": "We mustn't push on the bus.",
+        "segments": [
+          {
+            "text": "We ",
+            "role": "given"
+          },
+          {
+            "text": "mustn't",
+            "role": "answer"
+          },
+          {
+            "text": " push on the bus.",
+            "role": "given"
+          }
+        ]
+      },
+      {
+        "number": "5",
+        "line_type": "fill_blank",
+        "plain_text": "We must keep off the grass in the park.",
+        "segments": [
+          {
+            "text": "We ",
+            "role": "given"
+          },
+          {
+            "text": "must",
+            "role": "answer"
+          },
+          {
+            "text": " keep off the grass in the park.",
+            "role": "given"
+          }
+        ]
+      },
+      {
+        "number": "6",
+        "line_type": "fill_blank",
+        "plain_text": "We must wait for our turn in the computer room.",
+        "segments": [
+          {
+            "text": "We ",
+            "role": "given"
+          },
+          {
+            "text": "must",
+            "role": "answer"
+          },
+          {
+            "text": " wait for our turn in the computer room.",
+            "role": "given"
+          }
+        ]
+      },
+      {
+        "number": "a",
+        "line_type": "matching",
+        "plain_text": "a: 6",
+        "segments": [
+          {
+            "text": "a: ",
+            "role": "given"
+          },
+          {
+            "text": "6",
+            "role": "answer"
+          }
+        ]
+      },
+      {
+        "number": "b",
+        "line_type": "matching",
+        "plain_text": "b: 3",
+        "segments": [
+          {
+            "text": "b: ",
+            "role": "given"
+          },
+          {
+            "text": "3",
+            "role": "answer"
+          }
+        ]
+      },
+      {
+        "number": "c",
+        "line_type": "matching",
+        "plain_text": "c: 4",
+        "segments": [
+          {
+            "text": "c: ",
+            "role": "given"
+          },
+          {
+            "text": "4",
+            "role": "answer"
+          }
+        ]
+      },
+      {
+        "number": "d",
+        "line_type": "matching",
+        "plain_text": "d: 2",
+        "segments": [
+          {
+            "text": "d: ",
+            "role": "given"
+          },
+          {
+            "text": "2",
+            "role": "answer"
+          }
+        ]
+      },
+      {
+        "number": "e",
+        "line_type": "matching",
+        "plain_text": "e: 不填",
+        "segments": [
+          {
+            "text": "e: ",
+            "role": "given"
+          },
+          {
+            "text": "不填",
+            "role": "answer"
+          }
+        ]
+      },
+      {
+        "number": "f",
+        "line_type": "matching",
+        "plain_text": "f: 5",
+        "segments": [
+          {
+            "text": "f: ",
+            "role": "given"
+          },
+          {
+            "text": "5",
+            "role": "answer"
+          }
+        ]
+      },
+      {
+        "number": "g",
+        "line_type": "matching",
+        "plain_text": "g: 1",
+        "segments": [
+          {
+            "text": "g: ",
+            "role": "given"
+          },
+          {
+            "text": "1",
+            "role": "answer"
+          }
+        ]
+      }
+    ],
+    "explanation_zh": "第一部分：根据公共场所的行为规范填入表示“必须”的 must 或表示“禁止”的 mustn't。\n1. spit 意为“吐痰”，属于不文明行为，故用 mustn't。对应图片 g (女孩随地吐痰)，填1。\n2. line up 意为“排队”，是应当遵守的秩序，故用 must。对应图片 d (人们排队等车)，填2。\n3. litter 意为“乱扔垃圾”，是不文明行为，故用 mustn't。对应图片 b (女孩扔垃圾)，填3。\n4. push on the bus 意为“在公交车上推搡”，属于危险行为，故用 mustn't。对应图片 c (人们上车时推搡)，填4。\n5. keep off the grass 意为“请勿践踏草坪”，是公园规则，故用 must。对应图片 f (公园草坪上有禁止标识)，填5。\n6. wait for our turn 意为“等待轮到我们/按顺序轮流”，是微机室里的守则，故用 must。对应图片 a (学生在微机室抢电脑，需要按顺序轮流)，填6。\n* 注：图片 e 展示的是在扶梯/楼梯上跑闹，没有对应的句子，为干扰项，不填数字。",
+    "key_vocabulary": [
+      {
+        "word": "spit",
+        "meaning_zh": "吐痰，吐口水",
+        "ipa": "spɪt"
+      },
+      {
+        "word": "line up",
+        "meaning_zh": "排队",
+        "ipa": "laɪn ʌp"
+      },
+      {
+        "word": "litter",
+        "meaning_zh": "乱扔垃圾",
+        "ipa": "ˈlɪtə(r)"
+      },
+      {
+        "word": "push",
+        "meaning_zh": "推，推搡",
+        "ipa": "pʊʃ"
+      },
+      {
+        "word": "keep off",
+        "meaning_zh": "勿践踏，远离",
+        "ipa": "kiːp ɒf"
+      },
+      {
+        "word": "wait for one's turn",
+        "meaning_zh": "等待轮到某人，按顺序轮流",
+        "ipa": "weɪt fɔː(r) wʌnz tɜːn"
+      }
+    ],
+    "speak_units": [
+      {
+        "unit_type": "sentence",
+        "text": "We mustn't spit.",
+        "meaning_zh": "我们千万不能随地吐痰。"
+      },
+      {
+        "unit_type": "sentence",
+        "text": "We must line up.",
+        "meaning_zh": "我们必须排队。"
+      },
+      {
+        "unit_type": "sentence",
+        "text": "We mustn't litter.",
+        "meaning_zh": "我们千万不能乱扔垃圾。"
+      },
+      {
+        "unit_type": "sentence",
+        "text": "We mustn't push on the bus.",
+        "meaning_zh": "我们千万不能在公交车上推搡。"
+      },
+      {
+        "unit_type": "sentence",
+        "text": "We must keep off the grass in the park.",
+        "meaning_zh": "我们在公园里必须远离草坪（请勿践踏草坪）。"
+      },
+      {
+        "unit_type": "sentence",
+        "text": "We must wait for our turn in the computer room.",
+        "meaning_zh": "在微机室里我们必须等待轮到自己（按顺序使用）。"
+      }
+    ],
+    "uncertainty": {
+      "requires_review": false,
+      "confidence": 1.0,
+      "reason": ""
+    }
+  },
+  "error_code": null,
+  "error_message": null
+}

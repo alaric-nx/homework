@@ -4,6 +4,10 @@
 
 - 时间：2026-06-16
 - 更新类型：阶段完成
+- 摘要：完成后端 systemd 服务化改造，支持开机自启动，开启 linger 保证驻留运行。
+
+- 时间：2026-06-16
+- 更新类型：阶段完成
 - 摘要：完成后端 JSON v2、提示词和回归测试改造；`python -m pytest -q` 通过。
 
 - 时间：2026-06-16
@@ -20,6 +24,9 @@
 
 完成内容：
 
+- 完成后端 systemd 用户服务配置，编写 `homework-backend.service` 并部署至 `~/.config/systemd/user/`。
+- 开启用户 linger 驻留模式 (`loginctl enable-linger`)，支持开机免登录自启动。
+- 启动服务并通过了本地接口与 pytest 回归测试。
 - 统一后端文档结构。
 - 明确后端正式输出字段：
   - `question_meaning_zh`

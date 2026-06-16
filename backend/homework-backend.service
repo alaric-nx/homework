@@ -1,0 +1,14 @@
+[Unit]
+Description=Homework English Assistant Backend Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/z/work/homework/backend
+Environment="PATH=/home/z/.local/bin:/opt/softs/miniconda3/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/home/z/work/homework/backend/start_backend.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

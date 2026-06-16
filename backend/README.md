@@ -117,7 +117,21 @@ cd backend
 ./start_backend.sh
 ```
 
-3. Test request:
+3. Start via systemd (Autostart on boot):
+If you want the backend to start automatically on system boot and run in the background:
+```bash
+# Register & Enable systemd service (Start on boot)
+systemctl --user enable homework-backend.service
+# Start the service
+systemctl --user start homework-backend.service
+# Check service status
+systemctl --user status homework-backend.service
+# Check service logs
+journalctl --user -u homework-backend.service -f
+```
+Note: Linger is already enabled (`loginctl enable-linger z`) so the service will start on system boot without user login.
+
+4. Test request:
 ```bash
 curl -X POST "http://127.0.0.1:3000/v1/homework/parse?expected_type=english" \
   -H "content-type: image/jpeg" \
@@ -145,7 +159,7 @@ cd backend
 ls -t output/filled-*.jpg | head -n 1
 ```
 
-4. Check OCR provider availability:
+6. Check OCR provider availability:
 ```bash
 curl -sS http://127.0.0.1:3000/v1/ocr/providers
 ```
