@@ -152,7 +152,10 @@ fun ResultScreen(
         buildDisplayAnswerLines(result?.answer_lines.orEmpty())
     }
     val vocabLookup = remember(result) {
-        buildVocabularyLookup(result?.key_vocabulary.orEmpty())
+        buildVocabularyLookup(
+            items = result?.key_vocabulary.orEmpty(),
+            units = result?.speak_units.orEmpty()
+        )
     }
     val sentenceTranslationLookup = remember(result) {
         buildSentenceTranslationLookup(result?.speak_units.orEmpty())
@@ -806,12 +809,27 @@ private fun normalizeSentence(raw: String): String {
     return whitespacePattern.replace(raw.trim().lowercase(Locale.US), " ")
 }
 
-private fun buildVocabularyLookup(items: List<VocabularyItem>): Map<String, VocabularyItem> {
+private fun buildVocabularyLookup(
+    items: List<VocabularyItem>,
+    units: List<SpeakUnit>
+): Map<String, VocabularyItem> {
     val lookup = linkedMapOf<String, VocabularyItem>()
     items.forEach { item ->
         val key = normalizeWord(item.word)
         if (key.isNotEmpty()) {
             lookup[key] = item
+        }
+    }
+    units.filter { it.type == "word" }.forEach { unit ->
+        val meaning = unit.meaning_zh?.trim()
+        if (meaning.isNullOrBlank()) return@forEach
+        val key = normalizeWord(unit.text)
+        if (key.isNotEmpty() && lookup[key] == null) {
+            lookup[key] = VocabularyItem(
+                word = unit.text,
+                meaning_zh = meaning,
+                ipa = ""
+            )
         }
     }
     return lookup
@@ -857,8 +875,7 @@ private fun buildTipTarget(
     if (normalized.isEmpty()) return null
 
     val vocab = lookupVocabulary(normalized, vocabLookup)
-    val meaning = vocab?.meaning_zh?.takeIf { it.isNotBlank() }
-        ?: "暂无释义"
+    val meaning = vocab?.meaning_zh?.takeIf { it.isNotBlank() } ?: return null
     return WordTipTarget(
         id = id,
         word = rawWord,

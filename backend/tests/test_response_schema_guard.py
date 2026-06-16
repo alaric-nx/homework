@@ -23,6 +23,8 @@ def _valid_payload() -> dict:
         ],
         "explanation_zh": "I 后面的 be 动词用 am。",
         "key_vocabulary": [
+            {"word": "I", "meaning_zh": "我", "ipa": "/aɪ/"},
+            {"word": "am", "meaning_zh": "是", "ipa": "/æm/"},
             {"word": "student", "meaning_zh": "学生", "ipa": "/ˈstuːdnt/"}
         ],
         "speak_units": [
@@ -30,7 +32,10 @@ def _valid_payload() -> dict:
                 "unit_type": "sentence",
                 "text": "I am a student.",
                 "meaning_zh": "我是一名学生。",
-            }
+            },
+            {"unit_type": "word", "text": "I", "meaning_zh": "我"},
+            {"unit_type": "word", "text": "am", "meaning_zh": "是"},
+            {"unit_type": "word", "text": "student", "meaning_zh": "学生"},
         ],
         "uncertainty": {"requires_review": False, "confidence": 0.95},
     }

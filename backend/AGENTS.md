@@ -52,6 +52,7 @@
 - `line_type`：题型行类型，如 `fill_blank`、`choice`、`matching`、`sentence_ordering`、`reading_qa`、`translation`、`correction`、`copying`、`other`。
 - `plain_text`：完整答案文本，不含题号，用于整行 TTS 和兜底展示。
 - `segments`：前端彩色渲染片段，至少 1 个。
+- `key_vocabulary` 与 `speak_units` 需要覆盖完整答案行里的可点读英文词，避免前端出现有发音但缺少词义来源的情况。
 
 `segments[].role` 只能是：
 
