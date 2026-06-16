@@ -47,6 +47,13 @@ class AnswerLine(BaseModel):
     segments: list[AnswerSegment] = Field(min_length=1)
 
 
+class QuestionInstruction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = ""
+    meaning_zh: str = ""
+    confidence: float = Field(ge=0.0, le=1.0, default=0.0)
+
+
 class Uncertainty(BaseModel):
     model_config = ConfigDict(extra="forbid")
     requires_review: bool = False
@@ -66,6 +73,9 @@ class HomeworkParseResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     question_meaning_zh: str = Field(min_length=1)
+    question_instruction: QuestionInstruction = Field(
+        default_factory=QuestionInstruction
+    )
     answer_lines: list[AnswerLine] = Field(min_length=1)
     explanation_zh: str = Field(min_length=1)
     key_vocabulary: list[VocabularyItem] = Field(default_factory=list)

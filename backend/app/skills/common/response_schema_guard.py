@@ -10,6 +10,7 @@ from app.core.models import HomeworkParseResult
 # 固定输出仅包含以下 6 个字段，answer_lines 是参考答案区唯一数据源。
 ALLOWED_FIELDS = (
     "question_meaning_zh",
+    "question_instruction",
     "answer_lines",
     "explanation_zh",
     "key_vocabulary",

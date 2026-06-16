@@ -16,6 +16,11 @@ def _task_payload(updated_at: float, schema_version: int = TASK_RESULT_SCHEMA_VE
         "updated_at": updated_at,
         "result": {
             "question_meaning_zh": "补全句子。\n补全完整句子。",
+            "question_instruction": {
+                "text": "Complete the sentence.",
+                "meaning_zh": "补全句子。",
+                "confidence": 0.95,
+            },
             "answer_lines": [
                 {
                     "number": "1",

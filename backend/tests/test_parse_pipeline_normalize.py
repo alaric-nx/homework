@@ -51,6 +51,11 @@ def test_mark_missing_vocabulary_updates_uncertainty() -> None:
     result = HomeworkParseResult.model_validate(
         {
             "question_meaning_zh": "补全句子。\n补全完整句子。",
+            "question_instruction": {
+                "text": "Complete the sentence.",
+                "meaning_zh": "补全句子。",
+                "confidence": 0.95,
+            },
             "answer_lines": [
                 {
                     "number": "1",
@@ -100,6 +105,11 @@ def test_repair_missing_vocabulary_calls_model_once() -> None:
     result = HomeworkParseResult.model_validate(
         {
             "question_meaning_zh": "补全句子。\n补全完整句子。",
+            "question_instruction": {
+                "text": "Complete the sentence.",
+                "meaning_zh": "补全句子。",
+                "confidence": 0.95,
+            },
             "answer_lines": [
                 {
                     "number": "1",

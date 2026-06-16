@@ -247,9 +247,9 @@ fun ResultScreen(
                     }
                     item {
                         QuestionRequirementCard(
-                            title = stringResource(R.string.question_meaning),
-                            content = r.question_meaning_zh,
-                            speakText = extractQuestionRequirement(r.question_meaning_zh),
+                            title = stringResource(R.string.question_requirement),
+                            text = r.question_instruction.text,
+                            meaningZh = r.question_instruction.meaning_zh,
                             onSpeak = {
                                 activeTip = null
                                 activeSentenceTip = null
@@ -257,6 +257,7 @@ fun ResultScreen(
                             }
                         )
                     }
+                    item { SectionCard(stringResource(R.string.question_meaning), r.question_meaning_zh) }
                     item {
                         if (answerLines.isNotEmpty()) {
                             AnswerPronunciationCard(
@@ -364,10 +365,13 @@ private fun SectionCard(title: String, content: String) {
 @Composable
 private fun QuestionRequirementCard(
     title: String,
-    content: String,
-    speakText: String,
+    text: String,
+    meaningZh: String,
     onSpeak: (String) -> Unit
 ) {
+    val instructionText = text.trim()
+    val displayText = instructionText.ifBlank { "未识别到英文题目要求" }
+    val displayMeaning = meaningZh.trim().ifBlank { "暂无中文解释" }
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = ResultCardShape,
@@ -387,7 +391,14 @@ private fun QuestionRequirementCard(
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF174A7C)
                 )
-                IconButton(onClick = { onSpeak(speakText) }) {
+                IconButton(
+                    onClick = {
+                        if (instructionText.isNotBlank()) {
+                            onSpeak(instructionText)
+                        }
+                    },
+                    enabled = instructionText.isNotBlank()
+                ) {
                     Icon(
                         Icons.Default.VolumeUp,
                         contentDescription = stringResource(R.string.pronunciation_voice),
@@ -396,7 +407,18 @@ private fun QuestionRequirementCard(
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
-            Text(content, style = MaterialTheme.typography.bodyLarge, color = InkText)
+            Text(
+                displayText,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (instructionText.isBlank()) Color(0xFF667085) else InkText,
+                fontWeight = if (instructionText.isBlank()) FontWeight.Normal else FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                displayMeaning,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFF475467)
+            )
         }
     }
 }
@@ -922,13 +944,6 @@ private fun buildDisplayAnswerLines(answerLines: List<ResultAnswerLine>): List<D
             segments = segments
         )
     }
-}
-
-private fun extractQuestionRequirement(questionMeaning: String): String {
-    val lines = questionMeaning.lines()
-        .map { it.trim() }
-        .filter { it.isNotBlank() }
-    return lines.getOrNull(1) ?: lines.firstOrNull().orEmpty()
 }
 
 private fun shouldRenderAsAtomicLine(

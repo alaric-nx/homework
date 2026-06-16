@@ -46,11 +46,18 @@ data class TaskStatusResponse(
  */
 data class ParseResult(
     val question_meaning_zh: String = "",
+    val question_instruction: QuestionInstruction = QuestionInstruction(),
     val answer_lines: List<AnswerLine> = emptyList(),
     val explanation_zh: String = "",
     val key_vocabulary: List<VocabularyItem> = emptyList(),
     val speak_units: List<SpeakUnit> = emptyList(),
     val uncertainty: Uncertainty = Uncertainty()
+)
+
+data class QuestionInstruction(
+    val text: String = "",
+    val meaning_zh: String = "",
+    val confidence: Float = 0.0f
 )
 
 data class AnswerLine(

@@ -37,14 +37,16 @@ class ParsePipeline:
             "\n"
             "必须严格遵守：\n"
             "1) 只输出一个 JSON 对象，不要 markdown，不要代码块，不要任何额外文字。\n"
-            "2) 只允许以下字段：question_meaning_zh, answer_lines, explanation_zh, "
+            "2) 只允许以下字段：question_meaning_zh, question_instruction, answer_lines, explanation_zh, "
             "key_vocabulary, speak_units, uncertainty。\n"
             "3) 字段必须齐全，不能缺失，不能新增字段；不要输出 reference_answer。\n"
             "4) key_vocabulary 是数组，元素字段：word, meaning_zh, ipa(可空)。\n"
             "5) speak_units 是数组，元素字段：unit_type(只能是word或sentence), text, "
             "meaning_zh(可空)。sentence 单元必须尽量给 meaning_zh 中文翻译。\n"
             "6) uncertainty 字段：requires_review(boolean), confidence(0到1), reason(可空字符串)。\n"
-            "7) question_meaning_zh 必须分两行：第一行翻译题目要求，第二行说明孩子或学习者要做什么。\n"
+            "7) question_meaning_zh 用中文说明题目整体含义和孩子或学习者要做什么。\n"
+            "8) question_instruction 字段用于提取图片里的英文题目要求原句，字段为："
+            "text, meaning_zh, confidence。\n"
             "\n"
             "证据原则：\n"
             "- 你会收到题目图片附件，必须以图片中的题干、图片、编号、空格、选项、例句为主要依据。\n"
@@ -65,6 +67,13 @@ class ParsePipeline:
             "reading_qa, translation, correction, copying, other。\n"
             "- plain_text: 完整答案文本，不含题号，用于整行朗读。\n"
             "- segments: 数组，至少一个元素；元素字段 text 和 role。\n"
+            "\n"
+            "question_instruction 规则：\n"
+            "- text 必须尽量提取图片中原始英文题目要求句，保持原文大小写和标点，例如 Look, read and write.\n"
+            "- meaning_zh 是该英文题目要求的中文解释。\n"
+            "- confidence 表示英文原句识别置信度，清晰可靠 0.9-1.0；部分遮挡/模糊则降低。\n"
+            "- 如果图片里没有可见英文题目要求，text 和 meaning_zh 用空字符串，confidence=0，"
+            "并在 uncertainty 中说明。\n"
             "\n"
             "segments.role 只能是：\n"
             "- given: 题目原本已有的文字。\n"
@@ -89,8 +98,8 @@ class ParsePipeline:
             "里适合点读的英文单词；如果答案行里有可独立点读的单词，尽量给出对应释义和发音。\n"
             "- speak_units 优先给 sentence 单元，并尽量让 sentence.text 等于 answer_lines[].plain_text；"
             "同时补充答案行里需要单独点读的 word 单元，保证题目中完整答案里的常用词都有释义来源。\n"
-            "- speak_units 必须包含题目要求对应的 sentence 单元：text 使用 question_meaning_zh 第二行"
-            "所表达的作答要求，meaning_zh 给同一句中文，方便前端朗读题目要求。\n"
+            "- speak_units 必须包含题目要求对应的 sentence 单元：text 使用 question_instruction.text，"
+            "meaning_zh 使用 question_instruction.meaning_zh，方便前端朗读题目英文要求并查看中文解释。\n"
             "- 如果某个答案不确定，仍按编号保留位置，并在 uncertainty 中说明。\n"
             "\n"
             "不确定性规则：\n"
@@ -130,6 +139,11 @@ class ParsePipeline:
             logger.warning("parse_pipeline_fallback reason=%s", reason)
         return {
             "question_meaning_zh": "请根据题目完成英语作业。\n请按题目要求作答。",
+            "question_instruction": {
+                "text": "",
+                "meaning_zh": "",
+                "confidence": 0.0,
+            },
             "answer_lines": [
                 {
                     "number": None,

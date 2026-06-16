@@ -9,6 +9,11 @@ from app.skills.common.response_schema_guard import ResponseSchemaGuard
 def _valid_payload() -> dict:
     return {
         "question_meaning_zh": "补全句子。\n把空格补成完整句子。",
+        "question_instruction": {
+            "text": "Complete the sentence.",
+            "meaning_zh": "补全句子。",
+            "confidence": 0.95,
+        },
         "answer_lines": [
             {
                 "number": "1",
