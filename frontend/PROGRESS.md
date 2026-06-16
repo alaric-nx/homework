@@ -4,7 +4,7 @@
 
 - 时间：2026-06-16
 - 更新类型：阶段完成
-- 摘要：完成前端 JSON v2 数据模型和 `answer_lines` 分段高亮渲染；Kotlin 编译通过。
+- 摘要：完成前端 JSON v2 数据模型和 `answer_lines` 分段高亮渲染；release APK 打包通过。
 
 - 时间：2026-06-16
 - 更新类型：开始执行
@@ -42,7 +42,7 @@
 - 参考答案左侧展示 `number` badge。
 - 按 `segments[].role` 渲染颜色：`given` 黑色、`answer` 红色、`connector` 灰色、`correction` 橙红色。
 - 整行朗读使用 `plain_text`，并保留单词点读和句义查看能力。
-- 已运行 `./gradlew :app:compileDebugKotlin`，编译通过。
+- 已运行 `./gradlew :app:assembleRelease`，产出 unsigned release APK。
 
 阻塞项：
 

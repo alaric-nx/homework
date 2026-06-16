@@ -60,7 +60,7 @@
 - 计划完成：待定
 - 实际完成：2026-06-16
 - 最后更新时间：2026-06-16
-- 备注：`./gradlew :app:assembleDebug` 已通过并产出 debug APK；模拟 JSON 和 TTS 行为通过代码路径检查，未做真机手测。
+- 备注：`./gradlew :app:assembleRelease` 已通过并产出 unsigned release APK；模拟 JSON 和 TTS 行为通过代码路径检查，未做真机手测。
 
 子项：
 

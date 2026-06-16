@@ -32,6 +32,7 @@ class UploadWorker(
 
     companion object {
         const val KEY_TASK_ID = "task_id"
+        const val KEY_FORCE = "force"
         private const val TAG = "UploadWorker"
 
         /** 轮询间隔（毫秒） */
@@ -39,9 +40,14 @@ class UploadWorker(
         /** 最大轮询次数（35 × 2s ≈ 70s） */
         private const val MAX_POLL_ATTEMPTS = 200
 
-        fun enqueue(context: Context, taskId: String) {
+        fun enqueue(context: Context, taskId: String, force: Boolean = false) {
             val request = OneTimeWorkRequestBuilder<UploadWorker>()
-                .setInputData(workDataOf(KEY_TASK_ID to taskId))
+                .setInputData(
+                    workDataOf(
+                        KEY_TASK_ID to taskId,
+                        KEY_FORCE to force
+                    )
+                )
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .addTag("upload_$taskId")
                 .build()
@@ -58,11 +64,12 @@ class UploadWorker(
 
     override suspend fun doWork(): Result {
         val taskId = inputData.getString(KEY_TASK_ID)
+        val force = inputData.getBoolean(KEY_FORCE, false)
         if (taskId.isNullOrEmpty()) {
             Log.e(TAG, "No task_id in input")
             return Result.failure()
         }
-        Log.d(TAG, "doWork start taskId=$taskId attempt=$runAttemptCount")
+        Log.d(TAG, "doWork start taskId=$taskId attempt=$runAttemptCount force=$force")
 
         val task = repo.getById(taskId)
         if (task == null) {
@@ -82,7 +89,7 @@ class UploadWorker(
 
         // 1) 提交解析请求，获得后端 task_id
         val model = settings.modelName
-        val submitResult = api.submitParse(imageFile, model)
+        val submitResult = api.submitParse(imageFile, model, force = force)
         val backendTaskId = submitResult.fold(
             onSuccess = { it.taskId },
             onFailure = { e ->
@@ -118,7 +125,14 @@ class UploadWorker(
                 onSuccess = { status ->
                     when (status.status.lowercase()) {
                         "completed" -> {
-                            val resultJson = gson.toJson(status.result)
+                            val parseResult = status.result
+                            if (parseResult == null || parseResult.answer_lines.isEmpty()) {
+                                val msg = "后端返回缺少 answer_lines，请检查后端是否已部署 JSON v2。"
+                                Log.e(TAG, "Task $localTaskId invalid result: $msg")
+                                markFailed(localTaskId, msg)
+                                return Result.failure()
+                            }
+                            val resultJson = gson.toJson(parseResult)
                             Log.d(TAG, "Task $localTaskId completed, updating DB...")
                             val fresh = repo.getById(localTaskId)
                                 ?: return Result.failure()

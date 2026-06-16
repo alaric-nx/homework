@@ -97,10 +97,11 @@ fun TaskListScreen(
                             scope.launch {
                                 repo.update(task.copy(
                                     status = "RUNNING",
+                                    resultJson = null,
                                     errorMessage = null,
                                     updatedAt = System.currentTimeMillis()
                                 ))
-                                UploadWorker.enqueue(context, task.id)
+                                UploadWorker.enqueue(context, task.id, force = true)
                             }
                         },
                         onDelete = {
@@ -174,7 +175,7 @@ private fun TaskCard(
             // 操作按钮
             if (task.status == "FAILED" || task.status == "SUCCESS") {
                 IconButton(onClick = onRetry) {
-                    Icon(Icons.Default.Refresh, contentDescription = "重试",
+                    Icon(Icons.Default.Refresh, contentDescription = "重新解题",
                         tint = MaterialTheme.colorScheme.primary)
                 }
             }

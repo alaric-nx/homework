@@ -17,6 +17,7 @@ TIMEOUT_ERROR_MESSAGE = "Task timed out before completion."
 
 _ACTIVE_STATUSES = {TaskStatus.PENDING, TaskStatus.PROCESSING}
 _TERMINAL_STATUSES = {TaskStatus.COMPLETED, TaskStatus.FAILED}
+TASK_RESULT_SCHEMA_VERSION = 2
 
 
 class TaskStore:
@@ -43,6 +44,7 @@ class TaskStore:
     def _save_task_to_disk(self, task: Task) -> None:
         try:
             data = {
+                "schema_version": TASK_RESULT_SCHEMA_VERSION,
                 "task_id": task.task_id,
                 "status": task.status.value,
                 "image_hash": task.image_hash,
@@ -67,6 +69,15 @@ class TaskStore:
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
+
+            if data.get("schema_version") != TASK_RESULT_SCHEMA_VERSION:
+                logger.info(
+                    "task_disk_cache_schema_mismatch task_id=%s found=%s expected=%s",
+                    task_id,
+                    data.get("schema_version"),
+                    TASK_RESULT_SCHEMA_VERSION,
+                )
+                return None
             
             result_data = data.get("result")
             result = None
