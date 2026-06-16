@@ -2,11 +2,12 @@
 
 package com.homework.assistant.ui.result
 
+import android.graphics.BitmapFactory
+import android.os.Handler
+import android.os.Looper
+import android.view.MotionEvent
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,11 +18,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Translate
@@ -31,7 +32,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,20 +52,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import com.google.gson.Gson
 import com.homework.assistant.HomeworkApplication
 import com.homework.assistant.R
 import com.homework.assistant.data.model.ParseResult
 import com.homework.assistant.data.model.SpeakUnit
 import com.homework.assistant.data.model.VocabularyItem
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.util.Locale
 
 private val numberedAnswerPattern = Regex("""(?:^|[\s,;，；、/])(\d{1,2})\s*[\.\)\-:：]?\s*(.+?)(?=(?:[\s,;，；、/]+(?:\d{1,2})\s*[\.\)\-:：]?\s*)|$)""")
@@ -82,6 +86,7 @@ private val SoftPrimarySurface = Color(0xFFEAF3FF)
 private val SoftAccentSurface = Color(0xFFEAF7EF)
 private val SoftNeutralSurface = Color(0xFFF2F4F7)
 private val InkText = Color(0xFF172033)
+private const val WordTipPressDelayMs = 500L
 
 private data class AnswerLine(
     val id: String,
@@ -121,12 +126,14 @@ fun ResultScreen(
     LaunchedEffect(Unit) { ttsManager.ensureInit(context) }
 
     var result by remember { mutableStateOf<ParseResult?>(null) }
+    var originalImagePath by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var activeTip by remember { mutableStateOf<WordTipTarget?>(null) }
     var activeSentenceTip by remember { mutableStateOf<SentenceTipTarget?>(null) }
 
     LaunchedEffect(taskId) {
         val task = repo.getById(taskId)
+        originalImagePath = task?.imagePath
         if (task != null && task.resultJson != null) {
             result = gson.fromJson(task.resultJson, ParseResult::class.java)
         }
@@ -142,25 +149,12 @@ fun ResultScreen(
     val sentenceTranslationLookup = remember(result) {
         buildSentenceTranslationLookup(result?.speak_units.orEmpty())
     }
-    val answerWordKeys = remember(answerLines) {
-        answerLines.flatMap { line ->
-            tokenizeSpeakTokens(line.text)
-                .filter { it.speakable }
-                .mapNotNull { normalizeWord(it.text) }
-        }.toSet()
-    }
-    val answerSentenceKeys = remember(answerLines) {
-        answerLines.map { normalizeSentence(it.text) }.filter { it.isNotEmpty() }.toSet()
-    }
-    val vocabWordKeys = remember(vocabLookup) { vocabLookup.keys.toSet() }
-    val extraSpeakUnits = remember(result, answerWordKeys, answerSentenceKeys, vocabWordKeys) {
-        result?.speak_units.orEmpty().filter { unit ->
-            when (unit.type) {
-                "sentence" -> normalizeSentence(unit.text) !in answerSentenceKeys
-                else -> {
-                    val key = normalizeWord(unit.text)
-                    key.isNotEmpty() && key !in answerWordKeys && key !in vocabWordKeys
-                }
+    val originalBitmap = remember(originalImagePath) {
+        originalImagePath?.let { path ->
+            try {
+                BitmapFactory.decodeFile(path)?.asImageBitmap()
+            } catch (_: Exception) {
+                null
             }
         }
     }
@@ -227,6 +221,16 @@ fun ResultScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    if (originalBitmap != null) {
+                        item {
+                            OriginalQuestionImageCard(
+                                image = originalBitmap,
+                                contentDescription = "题目原图"
+                            )
+                        }
+                    } else {
+                        item { SectionCard("题目原图", "原图暂不可用") }
+                    }
                     if (r.uncertainty.requires_review && !r.uncertainty.warning.isNullOrEmpty()) {
                         item { UncertaintyBanner(r.uncertainty.warning!!) }
                     }
@@ -258,50 +262,40 @@ fun ResultScreen(
                         }
                     }
                     item { SectionCard(stringResource(R.string.explanation), r.explanation_zh) }
-                    if (r.key_vocabulary.isNotEmpty()) {
-                        item {
-                            Text(
-                                stringResource(R.string.vocabulary),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        items(r.key_vocabulary) { vocab ->
-                            VocabularyCard(vocab, onSpeak = { ttsManager.speak(vocab.word) })
-                        }
-                    }
-                    if (extraSpeakUnits.isNotEmpty()) {
-                        item {
-                            Text(
-                                stringResource(R.string.more_pronunciation),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        item {
-                            ExtraPronunciationCard(
-                                units = extraSpeakUnits,
-                                vocabLookup = vocabLookup,
-                                sentenceTranslationLookup = sentenceTranslationLookup,
-                                activeTip = activeTip,
-                                activeSentenceTip = activeSentenceTip,
-                                onTipChange = { activeTip = it },
-                                onSentenceTipChange = { activeSentenceTip = it },
-                                onSpeakLine = {
-                                    activeTip = null
-                                    activeSentenceTip = null
-                                    ttsManager.speak(it)
-                                },
-                                onSpeakWord = {
-                                    activeTip = null
-                                    activeSentenceTip = null
-                                    ttsManager.speak(it)
-                                }
-                            )
-                        }
-                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun OriginalQuestionImageCard(
+    image: ImageBitmap,
+    contentDescription: String
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = ResultCardShape,
+        colors = CardDefaults.cardColors(containerColor = CardSurface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(1.dp, CardBorder)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                "题目原图",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF174A7C)
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Image(
+                bitmap = image,
+                contentDescription = contentDescription,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 120.dp, max = 320.dp)
+            )
         }
     }
 }
@@ -392,76 +386,6 @@ private fun AnswerPronunciationCard(
                     onSpeakLine = onSpeakLine,
                     onSpeakWord = onSpeakWord
                 )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ExtraPronunciationCard(
-    units: List<SpeakUnit>,
-    vocabLookup: Map<String, VocabularyItem>,
-    sentenceTranslationLookup: Map<String, String>,
-    activeTip: WordTipTarget?,
-    activeSentenceTip: SentenceTipTarget?,
-    onTipChange: (WordTipTarget?) -> Unit,
-    onSentenceTipChange: (SentenceTipTarget?) -> Unit,
-    onSpeakLine: (String) -> Unit,
-    onSpeakWord: (String) -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = ResultCardShape,
-        colors = CardDefaults.cardColors(containerColor = CardSurface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        border = BorderStroke(1.dp, CardBorder)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            val sentenceUnits = units.filter { it.type == "sentence" }
-            val wordUnits = units.filter { it.type == "word" }
-
-            sentenceUnits.forEachIndexed { index, unit ->
-                if (index > 0) {
-                    HorizontalDivider(color = Color(0xFFE9EDF3))
-                }
-                SpeakableLineRow(
-                    lineId = "extra-sentence-$index",
-                    number = null,
-                    text = unit.text,
-                    vocabLookup = vocabLookup,
-                    translation = unit.meaning_zh?.takeIf { it.isNotBlank() }
-                        ?: findSentenceTranslation(unit.text, sentenceTranslationLookup),
-                    activeTip = activeTip,
-                    activeSentenceTip = activeSentenceTip,
-                    onTipChange = onTipChange,
-                    onSentenceTipChange = onSentenceTipChange,
-                    onSpeakLine = onSpeakLine,
-                    onSpeakWord = onSpeakWord
-                )
-            }
-
-            if (wordUnits.isNotEmpty()) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    wordUnits.forEachIndexed { index, unit ->
-                        SpeakableWordToken(
-                            token = unit.text,
-                            tipTarget = buildTipTarget(
-                                id = "extra-word-$index",
-                                rawWord = unit.text,
-                                vocabLookup = vocabLookup
-                            ),
-                            activeTip = activeTip,
-                            onTipChange = onTipChange,
-                            onSpeakWord = onSpeakWord
-                        )
-                    }
-                }
             }
         }
     }
@@ -588,31 +512,40 @@ private fun SentenceTranslationButton(
                 }
             )
         }
-        DropdownMenu(
-            expanded = isTipOpen,
-            onDismissRequest = { onTipChange(null) },
-            modifier = Modifier.widthIn(min = 180.dp, max = 280.dp)
-        ) {
+        var popupHeightPx by remember { mutableStateOf(0) }
+        if (isTipOpen) {
+            Popup(
+                alignment = Alignment.TopCenter,
+                offset = IntOffset(0, -popupHeightPx - 10),
+                onDismissRequest = { onTipChange(null) },
+                properties = PopupProperties(focusable = true)
+            ) {
             Surface(
+                modifier = Modifier
+                    .widthIn(min = 180.dp, max = 280.dp)
+                    .onSizeChanged { popupHeightPx = it.height },
                 shape = ResultCardShape,
                 color = CardSurface,
-                tonalElevation = 3.dp
+                tonalElevation = 6.dp,
+                shadowElevation = 8.dp,
+                border = BorderStroke(1.dp, CardBorder)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                Text(
-                    stringResource(R.string.pronunciation_translate),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF2E7D4F)
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    target.translation,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = InkText
-                )
+                    Text(
+                        stringResource(R.string.pronunciation_translate),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF2E7D4F)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        target.translation,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = InkText
+                    )
                 }
             }
+        }
         }
     }
 }
@@ -626,27 +559,54 @@ private fun SpeakableWordToken(
     onSpeakWord: (String) -> Unit
 ) {
     val isTipOpen = tipTarget != null && activeTip?.id == tipTarget.id
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    var tipRunnable by remember { mutableStateOf<Runnable?>(null) }
+    var tipShownForCurrentPress by remember { mutableStateOf(false) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            tipRunnable?.let { mainHandler.removeCallbacks(it) }
+            tipRunnable = null
+        }
+    }
+
     Box(
         modifier = Modifier
-            .pointerInput(token) {
-                coroutineScope {
-                    awaitEachGesture {
-                        awaitFirstDown(requireUnconsumed = false)
-                        var longPressTriggered = false
-                        val longPressJob = launch {
-                            delay(1000L)
-                            longPressTriggered = true
+            .pointerInteropFilter { event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        tipRunnable?.let { mainHandler.removeCallbacks(it) }
+                        tipShownForCurrentPress = false
+                        val pendingTip = Runnable {
                             if (tipTarget != null) {
+                                tipShownForCurrentPress = true
                                 onTipChange(tipTarget)
                             }
                         }
-                        val up = waitForUpOrCancellation()
-                        longPressJob.cancel()
-                        if (up != null && !longPressTriggered) {
+                        tipRunnable = pendingTip
+                        mainHandler.postDelayed(pendingTip, WordTipPressDelayMs)
+                        true
+                    }
+
+                    MotionEvent.ACTION_UP -> {
+                        tipRunnable?.let { mainHandler.removeCallbacks(it) }
+                        tipRunnable = null
+                        if (!tipShownForCurrentPress) {
                             onTipChange(null)
                             onSpeakWord(token)
                         }
+                        tipShownForCurrentPress = false
+                        true
                     }
+
+                    MotionEvent.ACTION_CANCEL -> {
+                        tipRunnable?.let { mainHandler.removeCallbacks(it) }
+                        tipRunnable = null
+                        tipShownForCurrentPress = false
+                        true
+                    }
+
+                    else -> true
                 }
             }
     ) {
@@ -676,75 +636,49 @@ private fun SpeakableWordToken(
         }
 
         if (tipTarget != null) {
-            DropdownMenu(
-                expanded = isTipOpen,
-                onDismissRequest = { if (isTipOpen) onTipChange(null) },
-                modifier = Modifier.widthIn(min = 160.dp, max = 240.dp)
-            ) {
+            var popupHeightPx by remember { mutableStateOf(0) }
+            if (isTipOpen) {
+                Popup(
+                    alignment = Alignment.TopCenter,
+                    offset = IntOffset(0, -popupHeightPx - 10),
+                    onDismissRequest = { onTipChange(null) },
+                    properties = PopupProperties(focusable = true)
+                ) {
                 Surface(
+                    modifier = Modifier
+                        .widthIn(min = 160.dp, max = 240.dp)
+                        .onSizeChanged { popupHeightPx = it.height },
                     shape = ResultCardShape,
                     color = CardSurface,
-                    tonalElevation = 3.dp
+                    tonalElevation = 6.dp,
+                    shadowElevation = 8.dp,
+                    border = BorderStroke(1.dp, CardBorder)
                 ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        tipTarget.word,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF22603A)
-                    )
-                    if (!tipTarget.ipa.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(4.dp))
+                    Column(modifier = Modifier.padding(12.dp)) {
                         Text(
-                            tipTarget.ipa,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF667085)
+                            tipTarget.word,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF22603A)
+                        )
+                        if (!tipTarget.ipa.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                tipTarget.ipa,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF667085)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            tipTarget.meaning,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = InkText
                         )
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        tipTarget.meaning,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = InkText
-                    )
-                }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun VocabularyCard(vocab: VocabularyItem, onSpeak: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable { onSpeak() },
-        shape = ResultCardShape,
-        colors = CardDefaults.cardColors(containerColor = CardSurface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        border = BorderStroke(1.dp, CardBorder)
-    ) {
-        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    vocab.word,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = InkText
-                )
-                if (vocab.ipa.isNotEmpty()) {
-                    Text(
-                        vocab.ipa,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF667085)
-                    )
-                }
-                Text(
-                    vocab.meaning_zh,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF344054)
-                )
             }
-            Icon(Icons.Default.VolumeUp, contentDescription = "发音", tint = Color(0xFF1565C0))
         }
     }
 }

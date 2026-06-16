@@ -1,5 +1,6 @@
 package com.homework.assistant.util
 
+import android.media.AudioAttributes
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -20,6 +21,7 @@ import java.util.Locale
  */
 class TtsManager(private val appContext: Context) {
 
+    private val speechRate = 0.78f
     private var tts: TextToSpeech? = null
     @Volatile private var isReady = false
     @Volatile private var initStarted = false
@@ -217,8 +219,16 @@ class TtsManager(private val appContext: Context) {
             Log.d("TtsManager", "tts current engine=${engine.defaultEngine}")
         } catch (_: Exception) {}
 
-        engine.setSpeechRate(1.0f)
+        engine.setSpeechRate(speechRate)
         engine.setPitch(1.0f)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            engine.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+        }
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) = Unit
             override fun onDone(utteranceId: String?) = Unit
@@ -239,10 +249,14 @@ class TtsManager(private val appContext: Context) {
 
     private fun speakInternal(engine: TextToSpeech, text: String, utteranceId: String): Int {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            engine.speak(text, TextToSpeech.QUEUE_FLUSH, Bundle(), utteranceId)
+            val params = Bundle().apply {
+                putString(TextToSpeech.Engine.KEY_PARAM_VOLUME, "1.0")
+            }
+            engine.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
         } else {
             @Suppress("DEPRECATION")
-            engine.speak(text, TextToSpeech.QUEUE_FLUSH, null)
+            val params = hashMapOf(TextToSpeech.Engine.KEY_PARAM_VOLUME to "1.0")
+            engine.speak(text, TextToSpeech.QUEUE_FLUSH, params)
         }
     }
 
