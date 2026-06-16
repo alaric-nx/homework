@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import tempfile
 import time
 from pathlib import Path
@@ -13,6 +14,8 @@ from app.services.llm_client import LLMClient
 from app.skills.common.response_schema_guard import ResponseSchemaGuard
 
 logger = logging.getLogger(__name__)
+ENGLISH_WORD_RE = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
+VOCAB_SKIP_WORDS = {"a", "an", "the"}
 
 
 class ParsePipeline:
@@ -157,6 +160,60 @@ class ParsePipeline:
             },
         }
 
+    def _normalize_word(self, raw: str) -> str:
+        return raw.strip().lower().strip(".,!?;:()[]{}\"'")
+
+    def _coverage_candidates(self, text: str) -> list[str]:
+        words: list[str] = []
+        for match in ENGLISH_WORD_RE.finditer(text):
+            word = self._normalize_word(match.group(0))
+            if len(word) <= 1 or word in VOCAB_SKIP_WORDS:
+                continue
+            words.append(word)
+        return list(dict.fromkeys(words))
+
+    def _vocabulary_keys(self, result: HomeworkParseResult) -> set[str]:
+        keys: set[str] = set()
+        for item in result.key_vocabulary:
+            key = self._normalize_word(item.word)
+            if key:
+                keys.add(key)
+        for unit in result.speak_units:
+            if unit.unit_type != "word" or not unit.meaning_zh:
+                continue
+            key = self._normalize_word(unit.text)
+            if key:
+                keys.add(key)
+        return keys
+
+    def _mark_missing_vocabulary(
+        self, result: HomeworkParseResult
+    ) -> HomeworkParseResult:
+        expected: list[str] = []
+        for line in result.answer_lines:
+            expected.extend(self._coverage_candidates(line.plain_text))
+        expected = list(dict.fromkeys(expected))
+        if not expected:
+            return result
+
+        vocabulary_keys = self._vocabulary_keys(result)
+        missing = [word for word in expected if word not in vocabulary_keys]
+        if not missing:
+            return result
+
+        missing_text = ", ".join(missing[:12])
+        reason = result.uncertainty.reason or ""
+        coverage_reason = f"部分答案词缺少词义：{missing_text}"
+        combined_reason = (
+            f"{reason}；{coverage_reason}" if reason else coverage_reason
+        )
+        logger.info("parse_vocabulary_coverage_missing words=%s", missing_text)
+        updated = result.model_copy(deep=True)
+        updated.uncertainty.requires_review = True
+        updated.uncertainty.confidence = min(updated.uncertainty.confidence, 0.85)
+        updated.uncertainty.reason = combined_reason
+        return updated
+
     def _write_temp_image(self, image_bytes: bytes) -> Path:
         with tempfile.NamedTemporaryFile(
             prefix="hw_parse_", suffix=".jpg", delete=False
@@ -203,6 +260,7 @@ class ParsePipeline:
         normalized_candidate = self._normalize_candidate(candidate)
         try:
             validated = self.schema_guard.validate_payload(normalized_candidate)
+            validated = self._mark_missing_vocabulary(validated)
             logger.info(
                 "pipeline_step schema_validate elapsed=%.2fs",
                 time.perf_counter() - start_ts,
@@ -217,6 +275,7 @@ class ParsePipeline:
             )
             fallback = self._fallback_output(reason=reason)
             validated = self.schema_guard.validate_payload(fallback)
+            validated = self._mark_missing_vocabulary(validated)
             logger.info(
                 "pipeline_step schema_validate_fallback elapsed=%.2fs",
                 time.perf_counter() - start_ts,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.core.models import HomeworkParseResult
 from app.services.parse_pipeline import ParsePipeline
 
 
@@ -41,3 +42,38 @@ def test_fallback_output_has_required_fields_without_answer_placements() -> None
     assert out["answer_lines"][0]["segments"][0]["role"] == "answer"
     assert "answer_placements" not in out
     assert "ocr_result" not in out
+
+
+def test_mark_missing_vocabulary_updates_uncertainty() -> None:
+    pipeline = ParsePipeline.__new__(ParsePipeline)
+    result = HomeworkParseResult.model_validate(
+        {
+            "question_meaning_zh": "补全句子。\n补全完整句子。",
+            "answer_lines": [
+                {
+                    "number": "1",
+                    "line_type": "fill_blank",
+                    "plain_text": "I am a student.",
+                    "segments": [{"text": "I am a student.", "role": "answer"}],
+                }
+            ],
+            "explanation_zh": "I 后面用 am。",
+            "key_vocabulary": [
+                {"word": "student", "meaning_zh": "学生", "ipa": "/ˈstuːdnt/"}
+            ],
+            "speak_units": [
+                {
+                    "unit_type": "sentence",
+                    "text": "I am a student.",
+                    "meaning_zh": "我是一名学生。",
+                }
+            ],
+            "uncertainty": {"requires_review": False, "confidence": 0.95},
+        }
+    )
+
+    out = pipeline._mark_missing_vocabulary(result)
+
+    assert out.uncertainty.requires_review is True
+    assert out.uncertainty.confidence == 0.85
+    assert "am" in (out.uncertainty.reason or "")

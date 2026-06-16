@@ -77,6 +77,17 @@ class TaskStore:
                     data.get("schema_version"),
                     TASK_RESULT_SCHEMA_VERSION,
                 )
+                file_path.unlink(missing_ok=True)
+                return None
+
+            status = TaskStatus(data["status"])
+            updated_at = data["updated_at"]
+            if (
+                status in _TERMINAL_STATUSES
+                and time.time() - updated_at > self.retention_sec
+            ):
+                logger.info("task_disk_cache_expired task_id=%s", task_id)
+                file_path.unlink(missing_ok=True)
                 return None
             
             result_data = data.get("result")
@@ -86,11 +97,11 @@ class TaskStore:
                 
             task = Task(
                 task_id=data["task_id"],
-                status=TaskStatus(data["status"]),
+                status=status,
                 image_hash=data["image_hash"],
                 model=data["model"],
                 created_at=data["created_at"],
-                updated_at=data["updated_at"],
+                updated_at=updated_at,
                 result=result,
                 error_code=data.get("error_code"),
                 error_message=data.get("error_message"),
@@ -279,6 +290,15 @@ class TaskStore:
                     and current - task.updated_at > self.retention_sec
                 ):
                     del self._tasks[task_id]
+                    file_path = self.job_dir / f"{task_id}.json"
+                    try:
+                        file_path.unlink(missing_ok=True)
+                    except Exception as e:
+                        logger.error(
+                            "failed_to_delete_expired_task_from_disk task_id=%s: %s",
+                            task_id,
+                            e,
+                        )
                     removed.append(task_id)
         if timed_out:
             logger.info("task_cleanup_timed_out count=%s", len(timed_out))

@@ -442,19 +442,16 @@ private fun SpeakableLineRow(
         }
 
         if (shouldRenderAsAtomicLine(lineType, text, segments)) {
-            FlowRow(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                segments.forEach { segment ->
-                    Text(
-                        text = segment.text,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = answerSegmentColor(segment.role)
-                    )
-                }
-            }
+            AtomicAnswerLine(
+                lineId = lineId,
+                text = text,
+                segments = segments,
+                vocabLookup = vocabLookup,
+                activeTip = activeTip,
+                onTipChange = onTipChange,
+                onSpeakWord = onSpeakWord,
+                modifier = Modifier.weight(1f)
+            )
         } else {
             FlowRow(
                 modifier = Modifier.weight(1f),
@@ -508,6 +505,134 @@ private fun SpeakableLineRow(
                     onSentenceTipChange(it)
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun AtomicAnswerLine(
+    lineId: String,
+    text: String,
+    segments: List<DisplayAnswerSegment>,
+    vocabLookup: Map<String, VocabularyItem>,
+    activeTip: WordTipTarget?,
+    onTipChange: (WordTipTarget?) -> Unit,
+    onSpeakWord: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val tipTarget = buildTipTarget(
+        id = "$lineId-atomic",
+        rawWord = text,
+        vocabLookup = vocabLookup
+    )
+    val isTipOpen = tipTarget != null && activeTip?.id == tipTarget.id
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    var tipRunnable by remember { mutableStateOf<Runnable?>(null) }
+    var tipShownForCurrentPress by remember { mutableStateOf(false) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            tipRunnable?.let { mainHandler.removeCallbacks(it) }
+            tipRunnable = null
+        }
+    }
+
+    Box(
+        modifier = modifier.pointerInteropFilter { event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    tipRunnable?.let { mainHandler.removeCallbacks(it) }
+                    tipShownForCurrentPress = false
+                    val pendingTip = Runnable {
+                        if (tipTarget != null) {
+                            tipShownForCurrentPress = true
+                            onTipChange(tipTarget)
+                        }
+                    }
+                    tipRunnable = pendingTip
+                    mainHandler.postDelayed(pendingTip, WordTipPressDelayMs)
+                    true
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    tipRunnable?.let { mainHandler.removeCallbacks(it) }
+                    tipRunnable = null
+                    if (!tipShownForCurrentPress) {
+                        onTipChange(null)
+                        onSpeakWord(text)
+                    }
+                    tipShownForCurrentPress = false
+                    true
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    tipRunnable?.let { mainHandler.removeCallbacks(it) }
+                    tipRunnable = null
+                    tipShownForCurrentPress = false
+                    true
+                }
+
+                else -> true
+            }
+        }
+    ) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            segments.forEach { segment ->
+                Text(
+                    text = segment.text,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = answerSegmentColor(segment.role)
+                )
+            }
+        }
+
+        if (tipTarget != null) {
+            var popupHeightPx by remember { mutableStateOf(0) }
+            if (isTipOpen) {
+                Popup(
+                    alignment = Alignment.TopCenter,
+                    offset = IntOffset(0, -popupHeightPx - 10),
+                    onDismissRequest = { onTipChange(null) },
+                    properties = PopupProperties(focusable = true)
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .widthIn(min = 160.dp, max = 240.dp)
+                            .onSizeChanged { popupHeightPx = it.height },
+                        shape = ResultCardShape,
+                        color = CardSurface,
+                        tonalElevation = 6.dp,
+                        shadowElevation = 8.dp,
+                        border = BorderStroke(1.dp, CardBorder)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                tipTarget.word,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF22603A)
+                            )
+                            if (!tipTarget.ipa.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    tipTarget.ipa,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF667085)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                tipTarget.meaning,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = InkText
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -875,7 +1000,8 @@ private fun buildTipTarget(
     if (normalized.isEmpty()) return null
 
     val vocab = lookupVocabulary(normalized, vocabLookup)
-    val meaning = vocab?.meaning_zh?.takeIf { it.isNotBlank() } ?: return null
+    val meaning = vocab?.meaning_zh?.takeIf { it.isNotBlank() }
+        ?: "暂无释义，点击可发音"
     return WordTipTarget(
         id = id,
         word = rawWord,
