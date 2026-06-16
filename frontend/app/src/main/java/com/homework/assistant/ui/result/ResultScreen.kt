@@ -91,6 +91,7 @@ private const val WordTipPressDelayMs = 500L
 private data class DisplayAnswerLine(
     val id: String,
     val number: String?,
+    val lineType: String,
     val text: String,
     val segments: List<DisplayAnswerSegment>
 )
@@ -383,6 +384,7 @@ private fun AnswerPronunciationCard(
                 SpeakableLineRow(
                     lineId = line.id,
                     number = line.number,
+                    lineType = line.lineType,
                     text = line.text,
                     segments = line.segments,
                     vocabLookup = vocabLookup,
@@ -403,6 +405,7 @@ private fun AnswerPronunciationCard(
 private fun SpeakableLineRow(
     lineId: String,
     number: String?,
+    lineType: String,
     text: String,
     segments: List<DisplayAnswerSegment>,
     vocabLookup: Map<String, VocabularyItem>,
@@ -435,32 +438,48 @@ private fun SpeakableLineRow(
             Spacer(modifier = Modifier.width(10.dp))
         }
 
-        FlowRow(
-            modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            val tokens = tokenizeDisplayTokens(segments)
-            tokens.forEachIndexed { index, token ->
-                if (token.speakable) {
-                    SpeakableWordToken(
-                        token = token.text,
-                        role = token.role,
-                        tipTarget = buildTipTarget(
-                            id = "$lineId-$index",
-                            rawWord = token.text,
-                            vocabLookup = vocabLookup
-                        ),
-                        activeTip = activeTip,
-                        onTipChange = onTipChange,
-                        onSpeakWord = onSpeakWord
-                    )
-                } else {
+        if (shouldRenderAsAtomicLine(lineType, text, segments)) {
+            FlowRow(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                segments.forEach { segment ->
                     Text(
-                        text = token.text,
+                        text = segment.text,
                         style = MaterialTheme.typography.bodyLarge,
-                        color = answerSegmentColor(token.role)
+                        color = answerSegmentColor(segment.role)
                     )
+                }
+            }
+        } else {
+            FlowRow(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                val tokens = tokenizeDisplayTokens(segments)
+                tokens.forEachIndexed { index, token ->
+                    if (token.speakable) {
+                        SpeakableWordToken(
+                            token = token.text,
+                            role = token.role,
+                            tipTarget = buildTipTarget(
+                                id = "$lineId-$index",
+                                rawWord = token.text,
+                                vocabLookup = vocabLookup
+                            ),
+                            activeTip = activeTip,
+                            onTipChange = onTipChange,
+                            onSpeakWord = onSpeakWord
+                        )
+                    } else {
+                        Text(
+                            text = token.text,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = answerSegmentColor(token.role)
+                        )
+                    }
                 }
             }
         }
@@ -719,10 +738,37 @@ private fun buildDisplayAnswerLines(answerLines: List<ResultAnswerLine>): List<D
         DisplayAnswerLine(
             id = "answer-$index",
             number = line.number?.trim()?.takeIf { it.isNotBlank() },
+            lineType = line.line_type.trim().lowercase(Locale.US),
             text = text,
             segments = segments
         )
     }
+}
+
+private fun shouldRenderAsAtomicLine(
+    lineType: String,
+    text: String,
+    segments: List<DisplayAnswerSegment>
+): Boolean {
+    val normalizedType = lineType.trim().lowercase(Locale.US)
+    val cleanText = text.trim()
+    if (cleanText.isBlank() || whitespacePattern.containsMatchIn(cleanText)) {
+        return false
+    }
+
+    val nonBlankSegments = segments.mapNotNull { segment ->
+        segment.text.trim().takeIf { it.isNotBlank() }
+    }
+    if (nonBlankSegments.size < 2) {
+        return false
+    }
+
+    val allLetters = nonBlankSegments.all { part ->
+        part.all { ch -> ch.isLetter() || ch == '\'' }
+    }
+    val mostlyShortPieces = nonBlankSegments.count { it.length <= 2 } >= 2
+    return allLetters && mostlyShortPieces &&
+        normalizedType in setOf("fill_blank", "picture_word", "other")
 }
 
 private fun tokenizeDisplayTokens(segments: List<DisplayAnswerSegment>): List<SpeakToken> {
