@@ -30,6 +30,11 @@ def _valid_payload() -> dict:
         "speak_units": [
             {
                 "unit_type": "sentence",
+                "text": "把空格补成完整句子。",
+                "meaning_zh": "把空格补成完整句子。",
+            },
+            {
+                "unit_type": "sentence",
                 "text": "I am a student.",
                 "meaning_zh": "我是一名学生。",
             },

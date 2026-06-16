@@ -245,7 +245,18 @@ fun ResultScreen(
                     if (r.uncertainty.requires_review && !r.uncertainty.warning.isNullOrEmpty()) {
                         item { UncertaintyBanner(r.uncertainty.warning!!) }
                     }
-                    item { SectionCard(stringResource(R.string.question_meaning), r.question_meaning_zh) }
+                    item {
+                        QuestionRequirementCard(
+                            title = stringResource(R.string.question_meaning),
+                            content = r.question_meaning_zh,
+                            speakText = extractQuestionRequirement(r.question_meaning_zh),
+                            onSpeak = {
+                                activeTip = null
+                                activeSentenceTip = null
+                                ttsManager.speak(it)
+                            }
+                        )
+                    }
                     item {
                         if (answerLines.isNotEmpty()) {
                             AnswerPronunciationCard(
@@ -344,6 +355,46 @@ private fun SectionCard(title: String, content: String) {
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF174A7C)
             )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(content, style = MaterialTheme.typography.bodyLarge, color = InkText)
+        }
+    }
+}
+
+@Composable
+private fun QuestionRequirementCard(
+    title: String,
+    content: String,
+    speakText: String,
+    onSpeak: (String) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = ResultCardShape,
+        colors = CardDefaults.cardColors(containerColor = CardSurface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(1.dp, CardBorder)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF174A7C)
+                )
+                IconButton(onClick = { onSpeak(speakText) }) {
+                    Icon(
+                        Icons.Default.VolumeUp,
+                        contentDescription = stringResource(R.string.pronunciation_voice),
+                        tint = Color(0xFF1565C0)
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(8.dp))
             Text(content, style = MaterialTheme.typography.bodyLarge, color = InkText)
         }
@@ -871,6 +922,13 @@ private fun buildDisplayAnswerLines(answerLines: List<ResultAnswerLine>): List<D
             segments = segments
         )
     }
+}
+
+private fun extractQuestionRequirement(questionMeaning: String): String {
+    val lines = questionMeaning.lines()
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+    return lines.getOrNull(1) ?: lines.firstOrNull().orEmpty()
 }
 
 private fun shouldRenderAsAtomicLine(

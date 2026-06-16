@@ -11,6 +11,7 @@
     <string name="retry">重试</string>
     <string name="back">返回</string>
     <string name="question_meaning">题目理解</string>
+    <string name="question_requirement">题目要求</string>
     <string name="reference_answer">参考答案</string>
     <string name="explanation">讲解</string>
     <string name="vocabulary">词汇</string>

@@ -89,6 +89,8 @@ class ParsePipeline:
             "里适合点读的英文单词；如果答案行里有可独立点读的单词，尽量给出对应释义和发音。\n"
             "- speak_units 优先给 sentence 单元，并尽量让 sentence.text 等于 answer_lines[].plain_text；"
             "同时补充答案行里需要单独点读的 word 单元，保证题目中完整答案里的常用词都有释义来源。\n"
+            "- speak_units 必须包含题目要求对应的 sentence 单元：text 使用 question_meaning_zh 第二行"
+            "所表达的作答要求，meaning_zh 给同一句中文，方便前端朗读题目要求。\n"
             "- 如果某个答案不确定，仍按编号保留位置，并在 uncertainty 中说明。\n"
             "\n"
             "不确定性规则：\n"
@@ -146,6 +148,11 @@ class ParsePipeline:
                 {"word": "answer", "meaning_zh": "答案", "ipa": "/ˈɑːnsər/"}
             ],
             "speak_units": [
+                {
+                    "unit_type": "sentence",
+                    "text": "请按题目要求作答。",
+                    "meaning_zh": "请按题目要求作答。",
+                },
                 {"unit_type": "word", "text": "answer", "meaning_zh": "答案"},
                 {
                     "unit_type": "sentence",
