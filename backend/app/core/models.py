@@ -30,6 +30,7 @@ class AnswerSegment(BaseModel):
 
 class AnswerLine(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    block_id: str = Field(min_length=1)
     number: str | None = None
     line_type: Literal[
         "fill_blank",
@@ -54,6 +55,16 @@ class QuestionInstruction(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0, default=0.0)
 
 
+class QuestionBlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    block_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    question_instruction: QuestionInstruction = Field(
+        default_factory=QuestionInstruction
+    )
+    question_meaning_zh: str = Field(min_length=1)
+
+
 class Uncertainty(BaseModel):
     model_config = ConfigDict(extra="forbid")
     requires_review: bool = False
@@ -76,6 +87,7 @@ class HomeworkParseResult(BaseModel):
     question_instruction: QuestionInstruction = Field(
         default_factory=QuestionInstruction
     )
+    question_blocks: list[QuestionBlock] = Field(min_length=1)
     answer_lines: list[AnswerLine] = Field(min_length=1)
     explanation_zh: str = Field(min_length=1)
     key_vocabulary: list[VocabularyItem] = Field(default_factory=list)

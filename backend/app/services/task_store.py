@@ -17,7 +17,7 @@ TIMEOUT_ERROR_MESSAGE = "Task timed out before completion."
 
 _ACTIVE_STATUSES = {TaskStatus.PENDING, TaskStatus.PROCESSING}
 _TERMINAL_STATUSES = {TaskStatus.COMPLETED, TaskStatus.FAILED}
-TASK_RESULT_SCHEMA_VERSION = 2
+TASK_RESULT_SCHEMA_VERSION = 3
 
 
 class TaskStore:

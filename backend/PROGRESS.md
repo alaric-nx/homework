@@ -4,6 +4,10 @@
 
 - 时间：2026-06-16
 - 更新类型：阶段完成
+- 摘要：完成 `question_blocks` 多题目块结构、`question_instruction` 题目要求字段、答案词义一次补全、任务缓存清理和文档同步。
+
+- 时间：2026-06-16
+- 更新类型：阶段完成
 - 摘要：完成后端 systemd 服务化改造，支持开机自启动，开启 linger 保证驻留运行。
 
 - 时间：2026-06-16
@@ -30,6 +34,8 @@
 - 统一后端文档结构。
 - 明确后端正式输出字段：
   - `question_meaning_zh`
+  - `question_instruction`
+  - `question_blocks`
   - `answer_lines`
   - `explanation_zh`
   - `key_vocabulary`
@@ -54,6 +60,16 @@
 - 重写 `parse_pipeline` 提示词，覆盖通用英语练习题、题型判断、完整答案行和不确定性规则。
 - 增加并更新后端测试，覆盖 v2 成功、缺字段、非法 `role`、fallback 和 event stream 提取。
 - 将任务持久化目录改为默认 `backend/job`，并支持 `HW_TASK_JOB_DIR` 覆盖，避免本地环境硬编码路径。
+- 新增 `question_instruction` 字段，用于提取图片中的英文题目要求原句、中文解释和识别置信度。
+- 新增 `question_blocks` 字段，用于区分同一图片中有关联但独立的多个题目块。
+- `answer_lines` 新增 `block_id`，必须指向存在的 `question_blocks[].block_id`。
+- 移除 schema/model 失败时的假答案兜底；契约不匹配会让任务进入 FAILED。
+- 提示词要求 `speak_units` 包含题目要求对应的 `sentence` 单元，便于前端朗读题目要求。
+- 增加答案词义覆盖检测：发现 `answer_lines[].plain_text` 中有英文词缺少释义时，最多额外调用一次模型补齐。
+- 词义补齐结果会合并到 `key_vocabulary` 和 `speak_units(unit_type=word)`；补齐失败不循环重试，只在 `uncertainty` 标记。
+- 任务磁盘缓存增加 schema 版本检查，旧 schema 或过期终态任务会从磁盘删除。
+- `backend/job/`、`backend/logs/`、根 `logs/` 已在 `.gitignore` 中忽略。
+- 后端回归测试已通过：`python -m pytest -q`，共 16 个测试。
 
 阻塞项：
 

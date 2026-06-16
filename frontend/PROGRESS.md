@@ -4,7 +4,11 @@
 
 - 时间：2026-06-16
 - 更新类型：阶段完成
-- 摘要：完成前端 JSON v2 数据模型和 `answer_lines` 分段高亮渲染；release APK 打包通过。
+- 摘要：完成 `question_blocks` 多题目块展示、`question_instruction` 题目要求卡片、强制重新解题、无释义弹窗提示和 debug APK 打包。
+
+- 时间：2026-06-16
+- 更新类型：阶段完成
+- 摘要：完成前端 JSON v2 数据模型和 `answer_lines` 分段高亮渲染；debug APK 打包通过。
 
 - 时间：2026-06-16
 - 更新类型：开始执行
@@ -22,6 +26,8 @@
 
 - 统一前端文档结构。
 - 明确前端完成响应中的 `result` 使用 JSON v2。
+- 明确 `question_instruction` 用于展示图片中的英文题目要求原句、中文解释和朗读。
+- 明确 `question_blocks` 用于把同一图片中的多个独立题目块分开展示。
 - 明确参考答案区不再依赖 `reference_answer`。
 - 明确 `segments[].role` 的显示规则：
   - `given`：黑色
@@ -31,18 +37,20 @@
 
 当前进行中：
 
-- 模拟 JSON 视觉检查尚未执行。
-- 真机 TTS 点击行为尚未执行。
+- 无。
 
 新增完成内容：
 
 - 在 `HomeworkModels.kt` 增加 `AnswerLine` / `AnswerSegment`。
-- `ParseResult` 移除 `reference_answer`，新增 `answer_lines`。
-- `ResultScreen.kt` 改为从 `answer_lines` 构建展示行。
+- `ParseResult` 移除 `reference_answer`，新增 `question_instruction`、`question_blocks` 和 `answer_lines`。
+- `ResultScreen.kt` 改为按 `question_blocks` 分组展示 `answer_lines`。
+- `ResultScreen.kt` 新增“题目要求”卡片，展示英文题目要求原句、中文解释和朗读按钮。
 - 参考答案左侧展示 `number` badge。
 - 按 `segments[].role` 渲染颜色：`given` 黑色、`answer` 红色、`connector` 灰色、`correction` 橙红色。
 - 整行朗读使用 `plain_text`，并保留单词点读和句义查看能力。
-- 已运行 `./gradlew :app:assembleRelease`，产出 unsigned release APK。
+- 重新解题按钮提交 `force=true`，触发后端跳过缓存重新解析。
+- 缺少释义的单词仍显示弹窗提示“暂无释义，点击可发音”。
+- 已运行 `./gradlew :app:assembleDebug`，产出 debug APK。
 
 阻塞项：
 
@@ -50,5 +58,4 @@
 
 下一步：
 
-- 使用模拟 JSON 做填空题红黑分段视觉检查。
-- 在设备上检查 TTS 点击行为。
+- 后续可在真机上复测题目要求朗读、答案点读和无释义弹窗体验。

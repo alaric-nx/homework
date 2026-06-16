@@ -9,8 +9,21 @@ from app.services.parse_pipeline import ParsePipeline
 def test_normalize_candidate_adds_answer_segments_from_plain_text() -> None:
     pipeline = ParsePipeline.__new__(ParsePipeline)
     candidate = {
+        "question_blocks": [
+            {
+                "block_id": 1,
+                "title": "第1题",
+                "question_instruction": {
+                    "text": "Complete the sentence.",
+                    "meaning_zh": "补全句子。",
+                    "confidence": 0.95,
+                },
+                "question_meaning_zh": "补全句子。",
+            }
+        ],
         "answer_lines": [
             {
+                "block_id": "q1",
                 "number": 1,
                 "line_type": "fill_blank",
                 "plain_text": "I am a student.",
@@ -18,6 +31,7 @@ def test_normalize_candidate_adds_answer_segments_from_plain_text() -> None:
         ],
     }
     out = pipeline._normalize_candidate(candidate)
+    assert out["question_blocks"][0]["block_id"] == "1"
     assert out["answer_lines"][0]["number"] == "1"
     assert out["answer_lines"][0]["segments"] == [
         {"text": "I am a student.", "role": "answer"}
@@ -27,23 +41,6 @@ def test_normalize_candidate_adds_answer_segments_from_plain_text() -> None:
 def test_normalize_candidate_passthrough_non_dict() -> None:
     pipeline = ParsePipeline.__new__(ParsePipeline)
     assert pipeline._normalize_candidate("not-a-dict") == "not-a-dict"
-
-
-def test_fallback_output_has_required_fields_without_answer_placements() -> None:
-    pipeline = ParsePipeline.__new__(ParsePipeline)
-    out = pipeline._fallback_output(reason="test")
-    required = {
-        "question_meaning_zh",
-        "answer_lines",
-        "explanation_zh",
-        "key_vocabulary",
-        "speak_units",
-        "uncertainty",
-    }
-    assert required.issubset(out.keys())
-    assert out["answer_lines"][0]["segments"][0]["role"] == "answer"
-    assert "answer_placements" not in out
-    assert "ocr_result" not in out
 
 
 def test_mark_missing_vocabulary_updates_uncertainty() -> None:
@@ -56,8 +53,21 @@ def test_mark_missing_vocabulary_updates_uncertainty() -> None:
                 "meaning_zh": "补全句子。",
                 "confidence": 0.95,
             },
+            "question_blocks": [
+                {
+                    "block_id": "q1",
+                    "title": "第1题",
+                    "question_instruction": {
+                        "text": "Complete the sentence.",
+                        "meaning_zh": "补全句子。",
+                        "confidence": 0.95,
+                    },
+                    "question_meaning_zh": "补全完整句子。",
+                }
+            ],
             "answer_lines": [
                 {
+                    "block_id": "q1",
                     "number": "1",
                     "line_type": "fill_blank",
                     "plain_text": "I am a student.",
@@ -110,8 +120,21 @@ def test_repair_missing_vocabulary_calls_model_once() -> None:
                 "meaning_zh": "补全句子。",
                 "confidence": 0.95,
             },
+            "question_blocks": [
+                {
+                    "block_id": "q1",
+                    "title": "第1题",
+                    "question_instruction": {
+                        "text": "Complete the sentence.",
+                        "meaning_zh": "补全句子。",
+                        "confidence": 0.95,
+                    },
+                    "question_meaning_zh": "补全完整句子。",
+                }
+            ],
             "answer_lines": [
                 {
+                    "block_id": "q1",
                     "number": "1",
                     "line_type": "fill_blank",
                     "plain_text": "I am a student.",

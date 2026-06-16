@@ -14,8 +14,21 @@ def _valid_payload() -> dict:
             "meaning_zh": "补全句子。",
             "confidence": 0.95,
         },
+        "question_blocks": [
+            {
+                "block_id": "q1",
+                "title": "第1题",
+                "question_instruction": {
+                    "text": "Complete the sentence.",
+                    "meaning_zh": "补全句子。",
+                    "confidence": 0.95,
+                },
+                "question_meaning_zh": "把空格补成完整句子。",
+            }
+        ],
         "answer_lines": [
             {
+                "block_id": "q1",
                 "number": "1",
                 "line_type": "fill_blank",
                 "plain_text": "I am a student.",
@@ -68,6 +81,14 @@ def test_validate_payload_rejects_missing_answer_lines() -> None:
 def test_validate_payload_rejects_invalid_segment_role() -> None:
     payload = _valid_payload()
     payload["answer_lines"][0]["segments"][0]["role"] = "wrong"
+
+    with pytest.raises(AppError):
+        ResponseSchemaGuard().validate_payload(payload)
+
+
+def test_validate_payload_rejects_unknown_block_id() -> None:
+    payload = _valid_payload()
+    payload["answer_lines"][0]["block_id"] = "q9"
 
     with pytest.raises(AppError):
         ResponseSchemaGuard().validate_payload(payload)

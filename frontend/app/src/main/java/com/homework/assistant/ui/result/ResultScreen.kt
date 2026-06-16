@@ -69,6 +69,7 @@ import com.homework.assistant.HomeworkApplication
 import com.homework.assistant.R
 import com.homework.assistant.data.model.AnswerLine as ResultAnswerLine
 import com.homework.assistant.data.model.ParseResult
+import com.homework.assistant.data.model.QuestionBlock
 import com.homework.assistant.data.model.SpeakUnit
 import com.homework.assistant.data.model.VocabularyItem
 import java.util.Locale
@@ -90,10 +91,20 @@ private const val WordTipPressDelayMs = 500L
 
 private data class DisplayAnswerLine(
     val id: String,
+    val blockId: String,
     val number: String?,
     val lineType: String,
     val text: String,
     val segments: List<DisplayAnswerSegment>
+)
+
+private data class DisplayQuestionBlock(
+    val blockId: String,
+    val title: String,
+    val instructionText: String,
+    val instructionMeaning: String,
+    val questionMeaning: String,
+    val lines: List<DisplayAnswerLine>
 )
 
 private data class DisplayAnswerSegment(
@@ -148,8 +159,11 @@ fun ResultScreen(
         loading = false
     }
 
-    val answerLines = remember(result) {
-        buildDisplayAnswerLines(result?.answer_lines.orEmpty())
+    val questionBlocks = remember(result) {
+        buildDisplayQuestionBlocks(
+            blocks = result?.question_blocks.orEmpty(),
+            answerLines = result?.answer_lines.orEmpty()
+        )
     }
     val vocabLookup = remember(result) {
         buildVocabularyLookup(
@@ -258,35 +272,153 @@ fun ResultScreen(
                         )
                     }
                     item { SectionCard(stringResource(R.string.question_meaning), r.question_meaning_zh) }
-                    item {
-                        if (answerLines.isNotEmpty()) {
-                            AnswerPronunciationCard(
-                                title = stringResource(R.string.reference_answer),
-                                lines = answerLines,
-                                vocabLookup = vocabLookup,
-                                sentenceTranslationLookup = sentenceTranslationLookup,
-                                activeTip = activeTip,
-                                activeSentenceTip = activeSentenceTip,
-                                onTipChange = { activeTip = it },
-                                onSentenceTipChange = { activeSentenceTip = it },
-                                onSpeakLine = {
-                                    activeTip = null
-                                    activeSentenceTip = null
-                                    ttsManager.speak(it)
-                                },
-                                onSpeakWord = {
-                                    activeTip = null
-                                    activeSentenceTip = null
-                                    ttsManager.speak(it)
-                                }
-                            )
-                        } else {
+                    if (questionBlocks.isNotEmpty()) {
+                        questionBlocks.forEach { block ->
+                            item {
+                                QuestionBlockAnswerCard(
+                                    block = block,
+                                    vocabLookup = vocabLookup,
+                                    sentenceTranslationLookup = sentenceTranslationLookup,
+                                    activeTip = activeTip,
+                                    activeSentenceTip = activeSentenceTip,
+                                    onTipChange = { activeTip = it },
+                                    onSentenceTipChange = { activeSentenceTip = it },
+                                    onSpeakInstruction = {
+                                        activeTip = null
+                                        activeSentenceTip = null
+                                        ttsManager.speak(it)
+                                    },
+                                    onSpeakLine = {
+                                        activeTip = null
+                                        activeSentenceTip = null
+                                        ttsManager.speak(it)
+                                    },
+                                    onSpeakWord = {
+                                        activeTip = null
+                                        activeSentenceTip = null
+                                        ttsManager.speak(it)
+                                    }
+                                )
+                            }
+                        }
+                    } else {
+                        item {
                             SectionCard(stringResource(R.string.reference_answer), "暂无参考答案")
                         }
                     }
                     item { SectionCard(stringResource(R.string.explanation), r.explanation_zh) }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun QuestionBlockAnswerCard(
+    block: DisplayQuestionBlock,
+    vocabLookup: Map<String, VocabularyItem>,
+    sentenceTranslationLookup: Map<String, String>,
+    activeTip: WordTipTarget?,
+    activeSentenceTip: SentenceTipTarget?,
+    onTipChange: (WordTipTarget?) -> Unit,
+    onSentenceTipChange: (SentenceTipTarget?) -> Unit,
+    onSpeakInstruction: (String) -> Unit,
+    onSpeakLine: (String) -> Unit,
+    onSpeakWord: (String) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = ResultCardShape,
+        colors = CardDefaults.cardColors(containerColor = CardSurface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(1.dp, CardBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                block.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF174A7C)
+            )
+            if (block.instructionText.isNotBlank() || block.instructionMeaning.isNotBlank()) {
+                CompactInstructionRow(
+                    text = block.instructionText,
+                    meaningZh = block.instructionMeaning,
+                    onSpeak = onSpeakInstruction
+                )
+            }
+            if (block.questionMeaning.isNotBlank()) {
+                Text(
+                    block.questionMeaning,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF475467)
+                )
+            }
+            if (block.lines.isNotEmpty()) {
+                HorizontalDivider(color = Color(0xFFE9EDF3))
+                AnswerPronunciationContent(
+                    lines = block.lines,
+                    vocabLookup = vocabLookup,
+                    sentenceTranslationLookup = sentenceTranslationLookup,
+                    activeTip = activeTip,
+                    activeSentenceTip = activeSentenceTip,
+                    onTipChange = onTipChange,
+                    onSentenceTipChange = onSentenceTipChange,
+                    onSpeakLine = onSpeakLine,
+                    onSpeakWord = onSpeakWord
+                )
+            } else {
+                Text("暂无参考答案", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF667085))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactInstructionRow(
+    text: String,
+    meaningZh: String,
+    onSpeak: (String) -> Unit
+) {
+    val instructionText = text.trim()
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            if (instructionText.isNotBlank()) {
+                Text(
+                    instructionText,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = InkText
+                )
+            }
+            val meaning = meaningZh.trim()
+            if (meaning.isNotBlank()) {
+                Text(
+                    meaning,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF475467)
+                )
+            }
+        }
+        IconButton(
+            onClick = {
+                if (instructionText.isNotBlank()) {
+                    onSpeak(instructionText)
+                }
+            },
+            enabled = instructionText.isNotBlank()
+        ) {
+            Icon(
+                Icons.Default.VolumeUp,
+                contentDescription = stringResource(R.string.pronunciation_voice),
+                tint = Color(0xFF1565C0)
+            )
         }
     }
 }
@@ -453,26 +585,53 @@ private fun AnswerPronunciationCard(
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF174A7C)
             )
-            lines.forEachIndexed { index, line ->
-                if (index > 0) {
-                    HorizontalDivider(color = Color(0xFFE9EDF3))
-                }
-                SpeakableLineRow(
-                    lineId = line.id,
-                    number = line.number,
-                    lineType = line.lineType,
-                    text = line.text,
-                    segments = line.segments,
-                    vocabLookup = vocabLookup,
-                    translation = findSentenceTranslation(line.text, sentenceTranslationLookup),
-                    activeTip = activeTip,
-                    activeSentenceTip = activeSentenceTip,
-                    onTipChange = onTipChange,
-                    onSentenceTipChange = onSentenceTipChange,
-                    onSpeakLine = onSpeakLine,
-                    onSpeakWord = onSpeakWord
-                )
+            AnswerPronunciationContent(
+                lines = lines,
+                vocabLookup = vocabLookup,
+                sentenceTranslationLookup = sentenceTranslationLookup,
+                activeTip = activeTip,
+                activeSentenceTip = activeSentenceTip,
+                onTipChange = onTipChange,
+                onSentenceTipChange = onSentenceTipChange,
+                onSpeakLine = onSpeakLine,
+                onSpeakWord = onSpeakWord
+            )
+        }
+    }
+}
+
+@Composable
+private fun AnswerPronunciationContent(
+    lines: List<DisplayAnswerLine>,
+    vocabLookup: Map<String, VocabularyItem>,
+    sentenceTranslationLookup: Map<String, String>,
+    activeTip: WordTipTarget?,
+    activeSentenceTip: SentenceTipTarget?,
+    onTipChange: (WordTipTarget?) -> Unit,
+    onSentenceTipChange: (SentenceTipTarget?) -> Unit,
+    onSpeakLine: (String) -> Unit,
+    onSpeakWord: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        lines.forEachIndexed { index, line ->
+            if (index > 0) {
+                HorizontalDivider(color = Color(0xFFE9EDF3))
             }
+            SpeakableLineRow(
+                lineId = line.id,
+                number = line.number,
+                lineType = line.lineType,
+                text = line.text,
+                segments = line.segments,
+                vocabLookup = vocabLookup,
+                translation = findSentenceTranslation(line.text, sentenceTranslationLookup),
+                activeTip = activeTip,
+                activeSentenceTip = activeSentenceTip,
+                onTipChange = onTipChange,
+                onSentenceTipChange = onSentenceTipChange,
+                onSpeakLine = onSpeakLine,
+                onSpeakWord = onSpeakWord
+            )
         }
     }
 }
@@ -914,9 +1073,31 @@ private fun SpeakableWordToken(
     }
 }
 
+private fun buildDisplayQuestionBlocks(
+    blocks: List<QuestionBlock>,
+    answerLines: List<ResultAnswerLine>
+): List<DisplayQuestionBlock> {
+    val displayLines = buildDisplayAnswerLines(answerLines)
+    val linesByBlock = displayLines.groupBy { it.blockId }
+    return blocks.mapIndexedNotNull { index, block ->
+        val blockId = block.block_id.trim()
+        if (blockId.isBlank()) return@mapIndexedNotNull null
+        val title = block.title.trim().ifBlank { "第${index + 1}题" }
+        DisplayQuestionBlock(
+            blockId = blockId,
+            title = title,
+            instructionText = block.question_instruction.text.trim(),
+            instructionMeaning = block.question_instruction.meaning_zh.trim(),
+            questionMeaning = block.question_meaning_zh.trim(),
+            lines = linesByBlock[blockId].orEmpty()
+        )
+    }
+}
+
 private fun buildDisplayAnswerLines(answerLines: List<ResultAnswerLine>): List<DisplayAnswerLine> {
     return answerLines.mapIndexedNotNull { index, line ->
         val plainText = line.plain_text.trim()
+        val blockId = line.block_id.trim()
         val rawSegments = line.segments
             .mapNotNull { segment ->
                 val text = segment.text
@@ -938,6 +1119,7 @@ private fun buildDisplayAnswerLines(answerLines: List<ResultAnswerLine>): List<D
 
         DisplayAnswerLine(
             id = "answer-$index",
+            blockId = blockId,
             number = line.number?.trim()?.takeIf { it.isNotBlank() },
             lineType = line.line_type.trim().lowercase(Locale.US),
             text = text,

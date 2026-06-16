@@ -37,16 +37,18 @@ class ParsePipeline:
             "\n"
             "必须严格遵守：\n"
             "1) 只输出一个 JSON 对象，不要 markdown，不要代码块，不要任何额外文字。\n"
-            "2) 只允许以下字段：question_meaning_zh, question_instruction, answer_lines, explanation_zh, "
-            "key_vocabulary, speak_units, uncertainty。\n"
+            "2) 只允许以下字段：question_meaning_zh, question_instruction, question_blocks, answer_lines, "
+            "explanation_zh, key_vocabulary, speak_units, uncertainty。\n"
             "3) 字段必须齐全，不能缺失，不能新增字段；不要输出 reference_answer。\n"
             "4) key_vocabulary 是数组，元素字段：word, meaning_zh, ipa(可空)。\n"
             "5) speak_units 是数组，元素字段：unit_type(只能是word或sentence), text, "
             "meaning_zh(可空)。sentence 单元必须尽量给 meaning_zh 中文翻译。\n"
             "6) uncertainty 字段：requires_review(boolean), confidence(0到1), reason(可空字符串)。\n"
-            "7) question_meaning_zh 用中文说明题目整体含义和孩子或学习者要做什么。\n"
-            "8) question_instruction 字段用于提取图片里的英文题目要求原句，字段为："
+            "7) question_meaning_zh 用中文概括整张图里的练习内容。如果有多个题目块，要说明包含几个题目块。\n"
+            "8) question_instruction 字段用于提取整张图最上层或共同的英文题目要求原句，字段为："
             "text, meaning_zh, confidence。\n"
+            "9) question_blocks 字段用于区分同一张图片里的多个独立题目块，字段为："
+            "block_id, title, question_instruction, question_meaning_zh。\n"
             "\n"
             "证据原则：\n"
             "- 你会收到题目图片附件，必须以图片中的题干、图片、编号、空格、选项、例句为主要依据。\n"
@@ -55,13 +57,23 @@ class ParsePipeline:
             "- 看不清、被遮挡、裁切缺失时，不要强行编造答案，应降低 confidence 并说明原因。\n"
             "\n"
             "在输出 JSON 前，请在内部完成这些步骤，但不要展示过程：\n"
-            "A. 判断题型：看图填空、选择、连线/匹配、排序、阅读理解、句子补全、翻译、抄写、改错等。\n"
-            "B. 找出题目要求：需要写单词、短语、完整句子，还是选择编号。\n"
-            "C. 识别所有编号、空格、选项和例句，确认答案数量。\n"
-            "D. 按题型推导答案。\n"
-            "E. 检查答案是否符合图片、题干、语法和常见英语表达。\n"
+            "A. 先判断图片里有几个独立题目块：看大题编号、标题、题目要求行、分隔线、版面分区、例题和编号重启。\n"
+            "B. 即使两个题目块共享图片、词库、例句或上下文，只要作答要求不同、编号体系不同、版面分区不同，"
+            "也必须拆成不同 question_blocks。\n"
+            "C. 为每个题目块判断题型：看图填空、选择、连线/匹配、排序、阅读理解、句子补全、翻译、抄写、改错等。\n"
+            "D. 为每个题目块找出题目要求：需要写单词、短语、完整句子，还是选择编号。\n"
+            "E. 识别所有编号、空格、选项和例句，确认每个题目块的答案数量。\n"
+            "F. 按题型推导答案。\n"
+            "G. 检查答案是否符合图片、题干、语法和常见英语表达。\n"
+            "\n"
+            "question_blocks 是题目块列表。每个元素代表图片中的一个独立题目块，字段为：\n"
+            "- block_id: 稳定 ID，只能用 q1, q2, q3...，按图片阅读顺序编号。\n"
+            "- title: 题目块标题，可用图片中的大题编号/标题；没有标题时用 第1题、第2题。\n"
+            "- question_instruction: 该题目块的英文题目要求原句和中文解释。\n"
+            "- question_meaning_zh: 该题目块要孩子或学习者做什么。\n"
             "\n"
             "answer_lines 是参考答案区的唯一数据源。每个元素代表一行答案，字段为：\n"
+            "- block_id: 所属 question_blocks[].block_id，必须能对应到某个题目块。\n"
             "- number: 题号，字符串或 null，支持 1、A、1a 等。\n"
             "- line_type: 只能是 fill_blank, choice, picture_word, matching, sentence_ordering, "
             "reading_qa, translation, correction, copying, other。\n"
@@ -74,6 +86,8 @@ class ParsePipeline:
             "- confidence 表示英文原句识别置信度，清晰可靠 0.9-1.0；部分遮挡/模糊则降低。\n"
             "- 如果图片里没有可见英文题目要求，text 和 meaning_zh 用空字符串，confidence=0，"
             "并在 uncertainty 中说明。\n"
+            "- 如果图片中有多个独立题目要求，顶层 question_instruction 使用最上方共同要求；"
+            "各题目块自己的题目要求必须放入 question_blocks[].question_instruction。\n"
             "\n"
             "segments.role 只能是：\n"
             "- given: 题目原本已有的文字。\n"
@@ -93,7 +107,10 @@ class ParsePipeline:
             "- 抄写题：照抄内容可标为 given，讲解中说明照抄即可。\n"
             "\n"
             "输出质量规则：\n"
+            "- 若图片中有多个题目块，必须先按题目块顺序输出 question_blocks，再按题目块顺序输出 answer_lines。\n"
             "- 若题目含编号，请按检测到的编号顺序给出 answer_lines；若无编号，请按题面阅读顺序组织。\n"
+            "- 同一张图中两个相关题目不能混成一个题目块；例如第一题先补全单词、第二题再用这些词补句子，"
+            "必须输出 q1 和 q2 两个 question_blocks。\n"
             "- key_vocabulary 优先收录答案词、题干关键词和易错词，必须覆盖 answer_lines[].plain_text "
             "里适合点读的英文单词；如果答案行里有可独立点读的单词，尽量给出对应释义和发音。\n"
             "- speak_units 优先给 sentence 单元，并尽量让 sentence.text 等于 answer_lines[].plain_text；"
@@ -112,6 +129,20 @@ class ParsePipeline:
             return candidate
 
         out = dict(candidate)
+        blocks = out.get("question_blocks")
+        if isinstance(blocks, list):
+            normalized_blocks: list[Any] = []
+            for index, block in enumerate(blocks):
+                if not isinstance(block, dict):
+                    normalized_blocks.append(block)
+                    continue
+                normalized_block = dict(block)
+                normalized_block["block_id"] = str(
+                    normalized_block.get("block_id") or f"q{index + 1}"
+                ).strip()
+                normalized_blocks.append(normalized_block)
+            out["question_blocks"] = normalized_blocks
+
         lines = out.get("answer_lines")
         if isinstance(lines, list):
             normalized_lines: list[Any] = []
@@ -120,6 +151,9 @@ class ParsePipeline:
                     normalized_lines.append(line)
                     continue
                 normalized_line = dict(line)
+                normalized_line["block_id"] = str(
+                    normalized_line.get("block_id") or ""
+                ).strip()
                 if normalized_line.get("number") is not None:
                     normalized_line["number"] = str(normalized_line["number"]).strip()
                 segments = normalized_line.get("segments")
@@ -133,53 +167,6 @@ class ParsePipeline:
                 normalized_lines.append(normalized_line)
             out["answer_lines"] = normalized_lines
         return out
-
-    def _fallback_output(self, reason: str | None = None) -> dict[str, Any]:
-        if reason:
-            logger.warning("parse_pipeline_fallback reason=%s", reason)
-        return {
-            "question_meaning_zh": "请根据题目完成英语作业。\n请按题目要求作答。",
-            "question_instruction": {
-                "text": "",
-                "meaning_zh": "",
-                "confidence": 0.0,
-            },
-            "answer_lines": [
-                {
-                    "number": None,
-                    "line_type": "other",
-                    "plain_text": "Please review the exercise.",
-                    "segments": [
-                        {
-                            "text": "Please review the exercise.",
-                            "role": "answer",
-                        }
-                    ],
-                }
-            ],
-            "explanation_zh": "这是兜底讲解，模型未能返回有效结果，请家长人工复核。",
-            "key_vocabulary": [
-                {"word": "answer", "meaning_zh": "答案", "ipa": "/ˈɑːnsər/"}
-            ],
-            "speak_units": [
-                {
-                    "unit_type": "sentence",
-                    "text": "请按题目要求作答。",
-                    "meaning_zh": "请按题目要求作答。",
-                },
-                {"unit_type": "word", "text": "answer", "meaning_zh": "答案"},
-                {
-                    "unit_type": "sentence",
-                    "text": "Please complete the exercise.",
-                    "meaning_zh": "请完成这道练习。",
-                },
-            ],
-            "uncertainty": {
-                "requires_review": True,
-                "confidence": 0.3,
-                "reason": reason or "使用了兜底策略，请家长人工复核。",
-            },
-        }
 
     def _normalize_word(self, raw: str) -> str:
         return raw.strip().lower().strip(".,!?;:()[]{}\"'")
@@ -354,17 +341,12 @@ class ParsePipeline:
         start_ts = time.perf_counter()
         prompt = self._build_prompt()
 
-        model_failure_reason = ""
-        try:
-            candidate = await self._call_model(prompt, image_bytes, model)
-            logger.info(
-                "pipeline_step llm elapsed=%.2fs model=%s",
-                time.perf_counter() - start_ts,
-                (model or "").strip() or "<default>",
-            )
-        except AppError as exc:
-            model_failure_reason = exc.detail
-            candidate = self._fallback_output(reason=exc.detail)
+        candidate = await self._call_model(prompt, image_bytes, model)
+        logger.info(
+            "pipeline_step llm elapsed=%.2fs model=%s",
+            time.perf_counter() - start_ts,
+            (model or "").strip() or "<default>",
+        )
 
         normalized_candidate = self._normalize_candidate(candidate)
         try:
@@ -376,17 +358,5 @@ class ParsePipeline:
             )
             return validated
         except AppError as first_error:
-            reason = model_failure_reason or (
-                "模型输出未满足固定 JSON 结构，已自动切换兜底结果。"
-            )
-            logger.warning(
-                "schema_validation_failed detail=%s", first_error.detail
-            )
-            fallback = self._fallback_output(reason=reason)
-            validated = self.schema_guard.validate_payload(fallback)
-            validated = await self._repair_missing_vocabulary(validated, model)
-            logger.info(
-                "pipeline_step schema_validate_fallback elapsed=%.2fs",
-                time.perf_counter() - start_ts,
-            )
-            return validated
+            logger.warning("schema_validation_failed detail=%s", first_error.detail)
+            raise

@@ -13,19 +13,21 @@
 - 状态：已完成
 - 优先级：高
 - 完成比例：100%
-- 已完成子项 / 总子项：5 / 5
+- 已完成子项 / 总子项：6 / 6
 - 负责人：Codex
 - 计划开始：2026-06-16
 - 计划完成：待定
 - 实际完成：2026-06-16
 - 最后更新时间：2026-06-16
-- 备注：移除正式接口中的 `reference_answer`，以 `answer_lines` 作为参考答案区唯一数据源。
+- 备注：移除正式接口中的 `reference_answer`，以 `answer_lines` 作为参考答案区唯一数据源，并新增 `question_instruction` 和 `question_blocks`。
 
 子项：
 
 - [x] 在 `app/core/models.py` 新增 `AnswerLine` 与 `AnswerSegment`
 - [x] 在 `HomeworkParseResult` 中移除 `reference_answer`
 - [x] 在 `HomeworkParseResult` 中新增 `answer_lines`
+- [x] 在 `HomeworkParseResult` 中新增 `question_instruction`
+- [x] 在 `HomeworkParseResult` 中新增 `question_blocks` 与 `answer_lines[].block_id`
 - [x] 更新 `schemas/homework_parse.schema.json`
 - [x] 更新 `ResponseSchemaGuard` 校验规则
 
@@ -34,7 +36,7 @@
 - 状态：已完成
 - 优先级：高
 - 完成比例：100%
-- 已完成子项 / 总子项：5 / 5
+- 已完成子项 / 总子项：7 / 7
 - 负责人：Codex
 - 计划开始：2026-06-16
 - 计划完成：待定
@@ -47,6 +49,8 @@
 - [x] 重写角色定位与证据原则
 - [x] 增加内部题型判断与答案数量确认规则
 - [x] 增加 `answer_lines` 输出规则
+- [x] 增加英文题目要求原句 `question_instruction` 输出规则
+- [x] 增加同图多题目块 `question_blocks` 输出规则
 - [x] 增加填空题完整句输出规则
 - [x] 增加不确定性门控规则
 
@@ -90,3 +94,23 @@
 - [x] 创建 `homework-backend.service` 系统服务模板文件
 - [x] 部署服务文件到 `~/.config/systemd/user/` 目录
 - [x] 启用（enable）并启动（start）该服务，验证状态和日志
+
+### B-005 词义补全与缓存清理
+
+- 状态：已完成
+- 优先级：高
+- 完成比例：100%
+- 已完成子项 / 总子项：4 / 4
+- 负责人：Codex
+- 计划开始：2026-06-16
+- 计划完成：2026-06-16
+- 实际完成：2026-06-16
+- 最后更新时间：2026-06-16
+- 备注：答案词义缺失时最多额外调用一次模型补齐；任务缓存按 schema 和保留时间清理，`backend/job/` 不提交 Git。
+
+子项：
+
+- [x] 检测 `answer_lines[].plain_text` 中缺少词义的英文词
+- [x] 缺词时最多额外调用一次模型补齐中文释义和 IPA
+- [x] 合并补齐结果到 `key_vocabulary` 和 `speak_units`
+- [x] 清理过期 / 旧 schema 磁盘任务缓存并忽略 `backend/job/`

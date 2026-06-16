@@ -14,8 +14,21 @@ V2_PAYLOAD = {
         "meaning_zh": "补全句子。",
         "confidence": 0.95,
     },
+    "question_blocks": [
+        {
+            "block_id": "q1",
+            "title": "第1题",
+            "question_instruction": {
+                "text": "Complete the sentence.",
+                "meaning_zh": "补全句子。",
+                "confidence": 0.95,
+            },
+            "question_meaning_zh": "把空格补成完整句子。",
+        }
+    ],
     "answer_lines": [
         {
+            "block_id": "q1",
             "number": "1",
             "line_type": "fill_blank",
             "plain_text": "I am a student.",

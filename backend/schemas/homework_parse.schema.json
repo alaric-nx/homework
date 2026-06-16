@@ -6,6 +6,7 @@
   "required": [
     "question_meaning_zh",
     "question_instruction",
+    "question_blocks",
     "answer_lines",
     "explanation_zh",
     "key_vocabulary",
@@ -35,14 +36,64 @@
         }
       }
     },
+    "question_blocks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "block_id",
+          "title",
+          "question_instruction",
+          "question_meaning_zh"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "question_instruction": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["text", "meaning_zh", "confidence"],
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "meaning_zh": {
+                "type": "string"
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          },
+          "question_meaning_zh": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
     "answer_lines": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["number", "line_type", "plain_text", "segments"],
+        "required": ["block_id", "number", "line_type", "plain_text", "segments"],
         "properties": {
+          "block_id": {
+            "type": "string",
+            "minLength": 1
+          },
           "number": {
             "type": ["string", "null"]
           },

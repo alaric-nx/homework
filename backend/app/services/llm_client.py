@@ -453,6 +453,7 @@ class LLMClient:
         required = {
             "question_meaning_zh",
             "question_instruction",
+            "question_blocks",
             "answer_lines",
             "explanation_zh",
             "key_vocabulary",

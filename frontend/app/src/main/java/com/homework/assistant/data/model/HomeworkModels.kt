@@ -47,6 +47,7 @@ data class TaskStatusResponse(
 data class ParseResult(
     val question_meaning_zh: String = "",
     val question_instruction: QuestionInstruction = QuestionInstruction(),
+    val question_blocks: List<QuestionBlock> = emptyList(),
     val answer_lines: List<AnswerLine> = emptyList(),
     val explanation_zh: String = "",
     val key_vocabulary: List<VocabularyItem> = emptyList(),
@@ -60,7 +61,15 @@ data class QuestionInstruction(
     val confidence: Float = 0.0f
 )
 
+data class QuestionBlock(
+    val block_id: String = "",
+    val title: String = "",
+    val question_instruction: QuestionInstruction = QuestionInstruction(),
+    val question_meaning_zh: String = ""
+)
+
 data class AnswerLine(
+    val block_id: String = "",
     val number: String? = null,
     val line_type: String = "other",
     val plain_text: String = "",

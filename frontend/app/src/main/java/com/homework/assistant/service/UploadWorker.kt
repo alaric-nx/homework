@@ -126,8 +126,12 @@ class UploadWorker(
                     when (status.status.lowercase()) {
                         "completed" -> {
                             val parseResult = status.result
-                            if (parseResult == null || parseResult.answer_lines.isEmpty()) {
-                                val msg = "后端返回缺少 answer_lines，请检查后端是否已部署 JSON v2。"
+                            if (
+                                parseResult == null ||
+                                parseResult.question_blocks.isEmpty() ||
+                                parseResult.answer_lines.isEmpty()
+                            ) {
+                                val msg = "后端返回缺少 question_blocks 或 answer_lines，请检查后端是否已部署当前 JSON 契约。"
                                 Log.e(TAG, "Task $localTaskId invalid result: $msg")
                                 markFailed(localTaskId, msg)
                                 return Result.failure()

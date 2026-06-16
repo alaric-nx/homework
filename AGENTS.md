@@ -28,7 +28,9 @@
 - 前端对题图进行裁剪、排序、合并和压缩。
 - 后端接收完整题图，调用视觉大模型解析题目。
 - 后端返回结构化结果：
+  - 图片中的英文题目要求原句
   - 题目中文理解
+  - 图片中的独立题目块
   - 结构化参考答案行
   - 中文讲解
   - 重点词汇
@@ -53,7 +55,10 @@
 - 提示词不再限定“小学英语”，改为通用英语练习题解析。
 - 参考答案区不再以 `reference_answer` 纯文本作为主数据源。
 - 新增 `answer_lines` 作为参考答案区唯一渲染数据源。
+- 新增 `question_instruction` 用于展示和朗读图片中的英文题目要求原句。
+- 新增 `question_blocks` 用于区分同一图片中的多个独立题目。
 - 填空、补全类题目必须展示补全后的完整句/完整短语。
+- `answer_lines[].block_id` 必须指向对应的 `question_blocks[].block_id`。
 - `answer_lines[].segments` 用于区分题目已有内容和模型填写内容：
   - `given`：题目已有内容，前端黑色显示
   - `answer`：学生应填写、选择或生成的答案，前端红色显示
@@ -65,6 +70,8 @@
 后端目标返回结构：
 
 - `question_meaning_zh`
+- `question_instruction`
+- `question_blocks`
 - `answer_lines`
 - `explanation_zh`
 - `key_vocabulary`
@@ -78,6 +85,7 @@
 ```json
 [
   {
+    "block_id": "q1",
     "number": "1",
     "line_type": "fill_blank",
     "plain_text": "I am a student.",
@@ -86,6 +94,43 @@
       { "text": "am", "role": "answer" },
       { "text": " a student.", "role": "given" }
     ]
+  }
+]
+```
+
+`question_instruction` 示例：
+
+```json
+{
+  "text": "Complete the sentence.",
+  "meaning_zh": "补全句子。",
+  "confidence": 0.95
+}
+```
+
+`question_blocks` 示例：
+
+```json
+[
+  {
+    "block_id": "q1",
+    "title": "第1题",
+    "question_instruction": {
+      "text": "Complete the words.",
+      "meaning_zh": "补全单词。",
+      "confidence": 0.95
+    },
+    "question_meaning_zh": "根据给出的部分字母补全完整单词。"
+  },
+  {
+    "block_id": "q2",
+    "title": "第2题",
+    "question_instruction": {
+      "text": "Write the words in the blanks.",
+      "meaning_zh": "把单词写到空格中。",
+      "confidence": 0.92
+    },
+    "question_meaning_zh": "用上一题相关单词完成句子。"
   }
 ]
 ```
@@ -111,6 +156,8 @@
 - [x] 定义前端交互细节（裁剪页、合并页、结果页）
 - [x] 定义异常流程（上传失败、解析失败、超时重试）
 - [x] 升级参考答案区为 `answer_lines` 分段高亮展示
+- [x] 提取英文题目要求原句并支持发音和中文解释
+- [x] 支持同一图片内多个有关联但独立的题目块分组展示
 
 ### B. 后端能力
 
@@ -118,8 +165,11 @@
 - [x] 实现解析 API
 - [x] 实现日志与错误码规范
 - [x] 将输出 schema 升级为 JSON v2
+- [x] 新增 `question_blocks` 并要求 `answer_lines[].block_id` 关联题目块
 - [x] 优化英语练习题解析提示词
 - [x] 移除正式输出中的 `reference_answer`
+- [x] 支持缺失答案词义时最多额外调用一次模型补全词义
+- [x] 清理过期 / 旧 schema 磁盘任务缓存
 
 ### C. 前端能力
 
@@ -131,7 +181,9 @@
 - [x] 结果数据 Room 持久化
 - [x] 本地 TTS 点读
 - [x] 使用 `answer_lines` 渲染参考答案区
+- [x] 使用 `question_blocks` 对参考答案按题目块分组展示
 - [x] 支持 `given` / `answer` / `connector` / `correction` 分段配色
+- [x] 支持英文题目要求原句朗读和中文解释展示
 
 ### D. 当前不做 / 后续再做
 
@@ -147,6 +199,12 @@
 - 本地覆盖：`backend/.env`（同 key 优先级高于 `config.env`，不提交 Git）
 - 进程环境变量优先级最高
 - `backend/start_backend.sh` 启动顺序：先加载 `config.env`，再加载 `.env` 覆盖
+
+## 本地运行产物
+
+- 日志目录不提交 Git：`logs/`、`backend/logs/`
+- 后端任务缓存不提交 Git：`backend/job/`
+- Android / Gradle 构建产物不提交 Git：`frontend/**/build/`、`frontend/.gradle/`
 
 ## LLM Remote 图片触发规则
 

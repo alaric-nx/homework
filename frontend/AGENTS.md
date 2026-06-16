@@ -54,6 +54,8 @@ GET /v1/homework/tasks/{task_id}
 完成响应中的 `result` 使用 JSON v2：
 
 - `question_meaning_zh`
+- `question_instruction`
+- `question_blocks`
 - `answer_lines`
 - `explanation_zh`
 - `key_vocabulary`
@@ -62,12 +64,34 @@ GET /v1/homework/tasks/{task_id}
 
 前端不再依赖 `reference_answer` 渲染参考答案区。
 
+## question_instruction 展示规则
+
+`question_instruction` 用于“题目要求”区域。
+
+字段：
+
+- `text`：图片中的英文题目要求原句。
+- `meaning_zh`：英文题目要求的中文解释。
+- `confidence`：后端识别置信度。
+
+展示：
+
+- 当 `text` 或 `meaning_zh` 非空时，结果页展示独立的“题目要求”卡片。
+- 英文原句可点击 / 按钮朗读，使用本地 `TextToSpeech`。
+- 中文解释直接展示给家长理解题目要求。
+- 若该字段为空，不影响参考答案区渲染。
+
 ## answer_lines 渲染规则
 
 `answer_lines` 是参考答案区唯一数据源。
 
+前端按 `question_blocks` 分组展示参考答案。每个 `question_blocks[]` 渲染为一个独立题目块卡片，卡片内展示该题目块的英文要求、中文解释、中文理解和所属答案行。
+
+`answer_lines[].block_id` 必须对应某个 `question_blocks[].block_id`。
+
 每行字段：
 
+- `block_id`：所属题目块 ID
 - `number`：题号，显示为左侧 badge；可为空
 - `line_type`：题型，用于后续样式或行为扩展
 - `plain_text`：完整答案文本，用于整行朗读
@@ -101,9 +125,13 @@ I am a student.
 - [x] 底部导航栏
 - [x] 结果数据持久化
 - [x] 数据模型升级为 JSON v2
+- [x] 展示 `question_instruction` 题目要求原句、中文解释和朗读按钮
+- [x] 使用 `question_blocks` 将同一图片中的多个题目块分组展示
 - [x] 参考答案区改为 `answer_lines` 渲染
 - [x] 支持 `given` / `answer` / `connector` / `correction` 分段配色
 - [x] 调整 TTS 逻辑，整行朗读使用 `plain_text`
+- [x] 重新解题时提交 `force=true`，触发后端强制重新解析
+- [x] 单词缺少释义时仍弹窗提示“暂无释义，点击可发音”
 
 ## 构建与测试
 
@@ -111,14 +139,13 @@ I am a student.
 
 ```bash
 cd frontend
-./gradlew :app:compileDebugKotlin
 ./gradlew :app:assembleDebug
 ./gradlew :app:testDebugUnitTest
 ```
 
 说明：
 
-- `compileDebugKotlin` 用于最快验证 Kotlin 编译。
+- 当前默认打 debug APK，不单独打 release 包。
 - 当前 `app/src` 仅有 `main` 源集，暂无单元测试源集。
 - JDK 25 下 Kotlin 可能回退到 JVM_24 target，该警告无害。
 
