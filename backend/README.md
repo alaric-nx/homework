@@ -3,7 +3,7 @@
 ## 1) Goals
 - Receive homework photos from Android app.
 - Parse exercise meaning in Chinese.
-- Return reference answer and short parent-friendly explanation.
+- Return structured answer lines and short parent-friendly explanation.
 - Provide pronunciation for words and full sentences (click-to-speak).
 - Keep output stable with strict JSON schema.
 
@@ -11,8 +11,8 @@
 Use `Android + Remote Backend`.
 
 Backend responsibilities:
-- OCR extraction from image.
-- LLM reasoning and structured parsing.
+- Direct vision-model parsing from the merged homework image.
+- LLM reasoning and structured JSON v2 output.
 - Pronunciation content generation and TTS URL generation.
 - Safety controls (child mode, uncertainty flags, fallback).
 - Observability (logs, trace ids, cost/latency metrics).
@@ -41,9 +41,8 @@ Input:
 - locale (default: zh-CN)
 
 Output (strict JSON):
-- `question_text`: recognized exercise text
 - `question_meaning_zh`: what this asks in Chinese
-- `reference_answer`: recommended answer
+- `answer_lines`: segmented answer lines for highlighted rendering
 - `explanation_zh`: short explanation for parent
 - `key_vocabulary`: list of words with IPA + meaning
 - `speak_units`: clickable units (word/sentence)
@@ -59,18 +58,14 @@ Output:
 - `audio_url` (or base64 audio)
 
 ## 5) Orchestration Flow
-1. Upload image -> storage
-2. OCR -> raw text + bbox + confidence
-3. Exercise classifier (optional)
-4. LLM parse with schema constraint
-5. Validate output against schema
-6. Generate TTS units (word/sentence)
-7. Return normalized response
+1. Receive merged image bytes.
+2. LLM vision parse with schema constraint.
+3. Validate output against JSON v2 schema.
+4. Return normalized answer lines, explanation, vocabulary, TTS units, and uncertainty.
 
 Fallback rules:
-- If OCR confidence is low, return `uncertainty.requires_review = true`.
-- If schema validation fails, retry with stricter prompt once.
-- If still fails, return partial result + error_code.
+- If image content is unclear, return `uncertainty.requires_review = true`.
+- If schema validation fails, return a valid fallback result and mark it for review.
 
 ## 6) Skills Positioning (Important)
 Skills are great for:

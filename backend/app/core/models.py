@@ -22,6 +22,31 @@ class SpeakUnit(BaseModel):
     meaning_zh: str | None = None
 
 
+class AnswerSegment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1)
+    role: Literal["given", "answer", "connector", "correction"]
+
+
+class AnswerLine(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    number: str | None = None
+    line_type: Literal[
+        "fill_blank",
+        "choice",
+        "picture_word",
+        "matching",
+        "sentence_ordering",
+        "reading_qa",
+        "translation",
+        "correction",
+        "copying",
+        "other",
+    ] = "other"
+    plain_text: str = Field(min_length=1)
+    segments: list[AnswerSegment] = Field(min_length=1)
+
+
 class Uncertainty(BaseModel):
     model_config = ConfigDict(extra="forbid")
     requires_review: bool = False
@@ -37,14 +62,11 @@ class ErrorResponse(BaseModel):
 
 
 class HomeworkParseResult(BaseModel):
-    """Simplified parse output schema.
-
-    仅包含 6 个固定字段，不含 answer_placements 和 ocr_result。
-    """
+    """Fixed parse output schema v2."""
 
     model_config = ConfigDict(extra="forbid")
     question_meaning_zh: str = Field(min_length=1)
-    reference_answer: str = Field(min_length=1)
+    answer_lines: list[AnswerLine] = Field(min_length=1)
     explanation_zh: str = Field(min_length=1)
     key_vocabulary: list[VocabularyItem] = Field(default_factory=list)
     speak_units: list[SpeakUnit] = Field(default_factory=list)

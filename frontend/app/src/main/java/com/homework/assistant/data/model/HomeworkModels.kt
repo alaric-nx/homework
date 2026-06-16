@@ -42,15 +42,27 @@ data class TaskStatusResponse(
 )
 
 /**
- * 解析结果（异步接口，移除 answer_placements / filled_image 相关字段）
+ * 解析结果 JSON v2（异步接口，移除 answer_placements / filled_image / reference_answer）
  */
 data class ParseResult(
     val question_meaning_zh: String = "",
-    val reference_answer: String = "",
+    val answer_lines: List<AnswerLine> = emptyList(),
     val explanation_zh: String = "",
     val key_vocabulary: List<VocabularyItem> = emptyList(),
     val speak_units: List<SpeakUnit> = emptyList(),
     val uncertainty: Uncertainty = Uncertainty()
+)
+
+data class AnswerLine(
+    val number: String? = null,
+    val line_type: String = "other",
+    val plain_text: String = "",
+    val segments: List<AnswerSegment> = emptyList()
+)
+
+data class AnswerSegment(
+    val text: String = "",
+    val role: String = "answer"
 )
 
 data class VocabularyItem(

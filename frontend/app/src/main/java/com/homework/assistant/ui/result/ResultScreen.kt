@@ -67,12 +67,12 @@ import androidx.compose.ui.window.PopupProperties
 import com.google.gson.Gson
 import com.homework.assistant.HomeworkApplication
 import com.homework.assistant.R
+import com.homework.assistant.data.model.AnswerLine as ResultAnswerLine
 import com.homework.assistant.data.model.ParseResult
 import com.homework.assistant.data.model.SpeakUnit
 import com.homework.assistant.data.model.VocabularyItem
 import java.util.Locale
 
-private val numberedAnswerPattern = Regex("""(?:^|[\s,;，；、/])(\d{1,2})\s*[\.\)\-:：]?\s*(.+?)(?=(?:[\s,;，；、/]+(?:\d{1,2})\s*[\.\)\-:：]?\s*)|$)""")
 private val fallbackAnswerLinePattern = Regex("""^(\d+)[\.)]?\s+(.+)$""")
 private val speakTokenPattern = Regex("""[A-Za-z]+(?:'[A-Za-z]+)?|\d+|[^\w\s]""")
 private val stripWordPattern = Regex("""^[^a-z0-9']+|[^a-z0-9']+$""")
@@ -88,15 +88,22 @@ private val SoftNeutralSurface = Color(0xFFF2F4F7)
 private val InkText = Color(0xFF172033)
 private const val WordTipPressDelayMs = 500L
 
-private data class AnswerLine(
+private data class DisplayAnswerLine(
     val id: String,
-    val number: Int?,
-    val text: String
+    val number: String?,
+    val text: String,
+    val segments: List<DisplayAnswerSegment>
+)
+
+private data class DisplayAnswerSegment(
+    val text: String,
+    val role: String
 )
 
 private data class SpeakToken(
     val text: String,
-    val speakable: Boolean
+    val speakable: Boolean,
+    val role: String = "answer"
 )
 
 private data class WordTipTarget(
@@ -141,7 +148,7 @@ fun ResultScreen(
     }
 
     val answerLines = remember(result) {
-        parseAnswerLines(result?.reference_answer.orEmpty())
+        buildDisplayAnswerLines(result?.answer_lines.orEmpty())
     }
     val vocabLookup = remember(result) {
         buildVocabularyLookup(result?.key_vocabulary.orEmpty())
@@ -258,7 +265,7 @@ fun ResultScreen(
                                 }
                             )
                         } else {
-                            SectionCard(stringResource(R.string.reference_answer), r.reference_answer)
+                            SectionCard(stringResource(R.string.reference_answer), "暂无参考答案")
                         }
                     }
                     item { SectionCard(stringResource(R.string.explanation), r.explanation_zh) }
@@ -342,7 +349,7 @@ private fun SectionCard(title: String, content: String) {
 @Composable
 private fun AnswerPronunciationCard(
     title: String,
-    lines: List<AnswerLine>,
+    lines: List<DisplayAnswerLine>,
     vocabLookup: Map<String, VocabularyItem>,
     sentenceTranslationLookup: Map<String, String>,
     activeTip: WordTipTarget?,
@@ -377,6 +384,7 @@ private fun AnswerPronunciationCard(
                     lineId = line.id,
                     number = line.number,
                     text = line.text,
+                    segments = line.segments,
                     vocabLookup = vocabLookup,
                     translation = findSentenceTranslation(line.text, sentenceTranslationLookup),
                     activeTip = activeTip,
@@ -394,8 +402,9 @@ private fun AnswerPronunciationCard(
 @Composable
 private fun SpeakableLineRow(
     lineId: String,
-    number: Int?,
+    number: String?,
     text: String,
+    segments: List<DisplayAnswerSegment>,
     vocabLookup: Map<String, VocabularyItem>,
     translation: String?,
     activeTip: WordTipTarget?,
@@ -417,7 +426,7 @@ private fun SpeakableLineRow(
                 border = BorderStroke(1.dp, Color(0xFFC7DCF5))
             ) {
                 Text(
-                    text = number.toString(),
+                    text = number,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold
@@ -431,11 +440,12 @@ private fun SpeakableLineRow(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            val tokens = tokenizeSpeakTokens(text)
+            val tokens = tokenizeDisplayTokens(segments)
             tokens.forEachIndexed { index, token ->
                 if (token.speakable) {
                     SpeakableWordToken(
                         token = token.text,
+                        role = token.role,
                         tipTarget = buildTipTarget(
                             id = "$lineId-$index",
                             rawWord = token.text,
@@ -449,7 +459,7 @@ private fun SpeakableLineRow(
                     Text(
                         text = token.text,
                         style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = answerSegmentColor(token.role)
                     )
                 }
             }
@@ -553,6 +563,7 @@ private fun SentenceTranslationButton(
 @Composable
 private fun SpeakableWordToken(
     token: String,
+    role: String,
     tipTarget: WordTipTarget?,
     activeTip: WordTipTarget?,
     onTipChange: (WordTipTarget?) -> Unit,
@@ -620,7 +631,7 @@ private fun SpeakableWordToken(
             contentColor = if (isTipOpen) {
                 Color(0xFF22603A)
             } else {
-                Color(0xFF253247)
+                answerSegmentColor(role)
             },
             border = BorderStroke(
                 1.dp,
@@ -683,50 +694,61 @@ private fun SpeakableWordToken(
     }
 }
 
-private fun parseAnswerLines(referenceAnswer: String): List<AnswerLine> {
-    val rawText = referenceAnswer.trim()
-    if (rawText.isBlank()) return emptyList()
-
-    val compact = rawText.replace('\n', ' ')
-    val compactMatches = numberedAnswerPattern.findAll(compact).toList()
-    if (compactMatches.isNotEmpty()) {
-        return compactMatches.mapIndexed { index, match ->
-            AnswerLine(
-                id = "answer-$index",
-                number = match.groupValues[1].toIntOrNull(),
-                text = match.groupValues[2].trim().trimEnd(';', '；', '，', ',', '、', '/')
-            )
-        }.filter { it.text.isNotBlank() }
-    }
-
-    return rawText.lines().mapIndexedNotNull { index, line ->
-        val trimmed = line.trim()
-        if (trimmed.isBlank()) return@mapIndexedNotNull null
-        val match = fallbackAnswerLinePattern.matchEntire(trimmed)
-        if (match != null) {
-            AnswerLine(
-                id = "answer-$index",
-                number = match.groupValues[1].toIntOrNull(),
-                text = match.groupValues[2].trim()
-            )
-        } else {
-            AnswerLine(
-                id = "answer-$index",
-                number = null,
-                text = trimmed
-            )
+private fun buildDisplayAnswerLines(answerLines: List<ResultAnswerLine>): List<DisplayAnswerLine> {
+    return answerLines.mapIndexedNotNull { index, line ->
+        val plainText = line.plain_text.trim()
+        val rawSegments = line.segments
+            .mapNotNull { segment ->
+                val text = segment.text
+                if (text.isBlank()) {
+                    null
+                } else {
+                    DisplayAnswerSegment(text = text, role = segment.role)
+                }
+            }
+        val segments = rawSegments.ifEmpty {
+            plainText.takeIf { it.isNotBlank() }?.let {
+                listOf(DisplayAnswerSegment(text = it, role = "answer"))
+            }.orEmpty()
         }
+        val text = plainText.ifBlank {
+            segments.joinToString(separator = "") { it.text }.trim()
+        }
+        if (text.isBlank()) return@mapIndexedNotNull null
+
+        DisplayAnswerLine(
+            id = "answer-$index",
+            number = line.number?.trim()?.takeIf { it.isNotBlank() },
+            text = text,
+            segments = segments
+        )
     }
 }
 
-private fun tokenizeSpeakTokens(text: String): List<SpeakToken> {
+private fun tokenizeDisplayTokens(segments: List<DisplayAnswerSegment>): List<SpeakToken> {
+    return segments.flatMap { segment ->
+        tokenizeSpeakTokens(segment.text, segment.role)
+    }
+}
+
+private fun tokenizeSpeakTokens(text: String, role: String = "answer"): List<SpeakToken> {
     val raw = text.trim()
     if (raw.isBlank()) return emptyList()
     return speakTokenPattern.findAll(raw).map { match ->
         val token = match.value
         val speakable = token.matches(Regex("""[A-Za-z]+(?:'[A-Za-z]+)?|\d+"""))
-        SpeakToken(text = token, speakable = speakable)
+        SpeakToken(text = token, speakable = speakable, role = role)
     }.toList()
+}
+
+private fun answerSegmentColor(role: String): Color {
+    return when (role.lowercase(Locale.US)) {
+        "given" -> InkText
+        "answer" -> Color(0xFFD32F2F)
+        "connector" -> Color(0xFF667085)
+        "correction" -> Color(0xFFE65100)
+        else -> Color(0xFFD32F2F)
+    }
 }
 
 private fun normalizeWord(raw: String): String {

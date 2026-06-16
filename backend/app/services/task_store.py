@@ -26,13 +26,18 @@ class TaskStore:
     不需要多线程锁。后续可替换为 Redis 等外部存储。
     """
 
-    def __init__(self, timeout_sec: int = 60, retention_sec: int = 600) -> None:
+    def __init__(
+        self,
+        timeout_sec: int = 60,
+        retention_sec: int = 600,
+        job_dir: str | Path | None = None,
+    ) -> None:
         self.timeout_sec = timeout_sec
         self.retention_sec = retention_sec
         self._tasks: dict[str, Task] = {}
         self._lock = asyncio.Lock()
         self._cleanup_task: asyncio.Task[None] | None = None
-        self.job_dir = Path("/home/z/work/homework/backend/job")
+        self.job_dir = Path(job_dir) if job_dir else Path(__file__).resolve().parents[2] / "job"
         self.job_dir.mkdir(parents=True, exist_ok=True)
 
     def _save_task_to_disk(self, task: Task) -> None:

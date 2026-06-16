@@ -67,6 +67,7 @@ class Settings:
     paddleocr_timeout_sec: int = 120
     task_timeout_sec: int = 60
     task_retention_sec: int = 600
+    task_job_dir: str = ""
 
 
 @lru_cache(maxsize=1)
@@ -94,4 +95,5 @@ def get_settings() -> Settings:
         paddleocr_timeout_sec=int(os.getenv("PADDLEOCR_TIMEOUT", "120")),
         task_timeout_sec=int(os.getenv("HW_TASK_TIMEOUT_SEC", "60")),
         task_retention_sec=int(os.getenv("HW_TASK_RETENTION_SEC", "600")),
+        task_job_dir=os.getenv("HW_TASK_JOB_DIR", "").strip(),
     )

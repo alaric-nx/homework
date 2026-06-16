@@ -7,28 +7,53 @@ import pytest
 from app.core.config import Settings
 from app.services.llm_client import LLMClient
 
+V2_PAYLOAD = {
+    "question_meaning_zh": "补全句子。\n把空格补成完整句子。",
+    "answer_lines": [
+        {
+            "number": "1",
+            "line_type": "fill_blank",
+            "plain_text": "I am a student.",
+            "segments": [
+                {"text": "I ", "role": "given"},
+                {"text": "am", "role": "answer"},
+                {"text": " a student.", "role": "given"},
+            ],
+        }
+    ],
+    "explanation_zh": "be 动词和 I 搭配用 am。",
+    "key_vocabulary": [],
+    "speak_units": [],
+    "uncertainty": {"requires_review": False, "confidence": 0.9},
+}
+
 
 def test_parse_json_payload_with_wrapped_text() -> None:
     client = LLMClient(Settings())
+    payload_text = json.dumps(V2_PAYLOAD, ensure_ascii=False)
     raw = """some logs...
 ```json
-{"question_meaning_zh":"x","reference_answer":"y","explanation_zh":"z","key_vocabulary":[],"speak_units":[],"uncertainty":{"requires_review":false,"confidence":0.9}}
+%s
 ```
-"""
+""" % payload_text
     payload = client._parse_json_payload(raw)  # noqa: SLF001
-    assert payload["question_meaning_zh"] == "x"
+    assert payload["question_meaning_zh"] == V2_PAYLOAD["question_meaning_zh"]
 
 
 def test_extract_payload_from_event_stream_lines() -> None:
     client = LLMClient(Settings())
+    escaped_payload = json.dumps(V2_PAYLOAD, ensure_ascii=False)
     raw = '\n'.join(
         [
             '{"type":"step_start","timestamp":1,"part":{"type":"step-start"}}',
-            '{"type":"message_delta","delta":"{\\"question_meaning_zh\\":\\"a\\",\\"reference_answer\\":\\"b\\",\\"explanation_zh\\":\\"c\\",\\"key_vocabulary\\":[],\\"speak_units\\":[],\\"uncertainty\\":{\\"requires_review\\":false,\\"confidence\\":0.9}}"}',
+            json.dumps(
+                {"type": "message_delta", "delta": escaped_payload},
+                ensure_ascii=False,
+            ),
         ]
     )
     payload = client._parse_json_payload(raw)  # noqa: SLF001
-    assert payload["reference_answer"] == "b"
+    assert payload["answer_lines"][0]["plain_text"] == "I am a student."
 
 
 def test_parse_json_payload_rejects_step_start_only() -> None:

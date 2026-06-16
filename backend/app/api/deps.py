@@ -20,4 +20,5 @@ def get_task_store() -> TaskStore:
     return TaskStore(
         timeout_sec=settings.task_timeout_sec,
         retention_sec=settings.task_retention_sec,
+        job_dir=settings.task_job_dir or None,
     )

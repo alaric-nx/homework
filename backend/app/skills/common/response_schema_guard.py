@@ -7,10 +7,10 @@ from typing import Any
 from app.core.errors import AppError
 from app.core.models import HomeworkParseResult
 
-# 简化后的固定输出仅包含以下 6 个字段，移除了 answer_placements 与 ocr_result。
+# 固定输出仅包含以下 6 个字段，answer_lines 是参考答案区唯一数据源。
 ALLOWED_FIELDS = (
     "question_meaning_zh",
-    "reference_answer",
+    "answer_lines",
     "explanation_zh",
     "key_vocabulary",
     "speak_units",
@@ -27,8 +27,7 @@ class ResponseSchemaGuard:
             self.schema = json.load(fp)
 
     def validate_payload(self, payload: dict[str, Any]) -> HomeworkParseResult:
-        # 仅保留允许的 6 个字段，忽略模型可能返回的多余字段（如已移除的
-        # answer_placements / ocr_result），保证输出结构稳定且不因多余字段而校验失败。
+        # 仅保留允许字段，忽略模型可能返回的多余字段，保证输出结构稳定。
         filtered = {
             key: value for key, value in payload.items() if key in ALLOWED_FIELDS
         }
