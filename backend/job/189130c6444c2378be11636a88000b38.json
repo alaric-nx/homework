@@ -1,0 +1,144 @@
+{
+  "task_id": "189130c6444c2378be11636a88000b38",
+  "status": "completed",
+  "image_hash": "189130c6444c2378be11636a88000b38",
+  "model": "claude-opus-4-8",
+  "created_at": 1781584765.0636804,
+  "updated_at": 1781584787.1784885,
+  "result": {
+    "question_meaning_zh": "隐藏的信息是什么？阅读并写出来。\n根据图片提示填写单词，然后用符号对应的字母解码出隐藏信息。",
+    "reference_answer": "1. litter\n2. quiet\n3. take the animals\n4. talk on the phone\n5. feed the animals\n6. pick the flowers\n7. keep off the grass\n8. push\nThe hidden message:\nWe should behave ourselves.",
+    "explanation_zh": "这是一道看图识词和解码题。每幅图展示一个行为规范场景，需要根据图片内容填写对应的短语或单词。填空处用灰色方块标记了关键字母，每个灰色方块旁有一个符号。完成填空后，按照底部符号序列找到对应字母，就能拼出隐藏信息：We should behave ourselves（我们应该规范自己的行为）。\n\n图片解读：\n1. 乱扔垃圾 → litter（i字母对应◆）\n2. 保持安静 → quiet（q字母对应*）\n3. 带走动物 → take the animals（a字母对应*）\n4. 在手机上通话 → talk on the phone（l字母对应♣）\n5. 喂动物 → feed the animals（e字母对应♥和❀）\n6. 采花 → pick the flowers（i字母对应✿和★）\n7. 勿踏草坪 → keep off the grass（s字母对应◈）\n8. 推 → push（u字母对应✪）\n\n将符号序列★♥ ❀✪*◈ ✿*♣♣◆✪♣★◈✿*转换成字母：W-e s-h-o-u-l-d b-e-h-a-v-e o-u-r-s-e-l-v-e-s",
+    "key_vocabulary": [
+      {
+        "word": "litter",
+        "meaning_zh": "乱扔垃圾",
+        "ipa": "/ˈlɪtə(r)/"
+      },
+      {
+        "word": "quiet",
+        "meaning_zh": "安静的",
+        "ipa": "/ˈkwaɪət/"
+      },
+      {
+        "word": "take",
+        "meaning_zh": "带走",
+        "ipa": "/teɪk/"
+      },
+      {
+        "word": "animals",
+        "meaning_zh": "动物",
+        "ipa": "/ˈænɪməlz/"
+      },
+      {
+        "word": "talk",
+        "meaning_zh": "说话，交谈",
+        "ipa": "/tɔːk/"
+      },
+      {
+        "word": "phone",
+        "meaning_zh": "电话",
+        "ipa": "/fəʊn/"
+      },
+      {
+        "word": "feed",
+        "meaning_zh": "喂养",
+        "ipa": "/fiːd/"
+      },
+      {
+        "word": "pick",
+        "meaning_zh": "采摘",
+        "ipa": "/pɪk/"
+      },
+      {
+        "word": "flowers",
+        "meaning_zh": "花",
+        "ipa": "/ˈflaʊəz/"
+      },
+      {
+        "word": "keep off",
+        "meaning_zh": "远离，勿踏",
+        "ipa": "/kiːp ɒf/"
+      },
+      {
+        "word": "grass",
+        "meaning_zh": "草地",
+        "ipa": "/ɡrɑːs/"
+      },
+      {
+        "word": "push",
+        "meaning_zh": "推",
+        "ipa": "/pʊʃ/"
+      },
+      {
+        "word": "behave",
+        "meaning_zh": "表现，举止",
+        "ipa": "/bɪˈheɪv/"
+      },
+      {
+        "word": "ourselves",
+        "meaning_zh": "我们自己",
+        "ipa": "/ɑːˈselvz/"
+      },
+      {
+        "word": "should",
+        "meaning_zh": "应该",
+        "ipa": "/ʃʊd/"
+      }
+    ],
+    "speak_units": [
+      {
+        "unit_type": "sentence",
+        "text": "litter",
+        "meaning_zh": "乱扔垃圾"
+      },
+      {
+        "unit_type": "sentence",
+        "text": "quiet",
+        "meaning_zh": "安静的"
+      },
+      {
+        "unit_type": "sentence",
+        "text": "take the animals",
+        "meaning_zh": "带走动物"
+      },
+      {
+        "unit_type": "sentence",
+        "text": "talk on the phone",
+        "meaning_zh": "在手机上通话"
+      },
+      {
+        "unit_type": "sentence",
+        "text": "feed the animals",
+        "meaning_zh": "喂动物"
+      },
+      {
+        "unit_type": "sentence",
+        "text": "pick the flowers",
+        "meaning_zh": "采花"
+      },
+      {
+        "unit_type": "sentence",
+        "text": "keep off the grass",
+        "meaning_zh": "勿踏草坪"
+      },
+      {
+        "unit_type": "sentence",
+        "text": "push",
+        "meaning_zh": "推"
+      },
+      {
+        "unit_type": "sentence",
+        "text": "We should behave ourselves.",
+        "meaning_zh": "我们应该规范自己的行为。"
+      }
+    ],
+    "uncertainty": {
+      "requires_review": false,
+      "confidence": 0.95,
+      "reason": null
+    }
+  },
+  "error_code": null,
+  "error_message": null
+}
