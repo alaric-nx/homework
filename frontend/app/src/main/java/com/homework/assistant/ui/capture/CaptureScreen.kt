@@ -5,6 +5,10 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Collections
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,7 +29,8 @@ import java.io.File
 @Composable
 fun CaptureScreen(
     onImageSelected: (Uri) -> Unit,
-    onMultipleImagesSelected: (List<Uri>) -> Unit
+    onMultipleImagesSelected: (List<Uri>) -> Unit,
+    onBatchImagesSelected: (List<Uri>) -> Unit
 ) {
     val context = LocalContext.current
     val ttsManager = (context.applicationContext as HomeworkApplication).ttsManager
@@ -35,8 +40,7 @@ fun CaptureScreen(
         ttsManager.ensureInit(context)
     }
 
-    // 相册多选
-    val galleryMultiLauncher = rememberLauncherForActivityResult(
+    val mergeGalleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris: List<Uri> ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
@@ -45,6 +49,13 @@ fun CaptureScreen(
         } else {
             onMultipleImagesSelected(uris)
         }
+    }
+
+    val batchGalleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        onBatchImagesSelected(uris)
     }
 
     // 相机拍照
@@ -79,21 +90,70 @@ fun CaptureScreen(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Button(
+            CaptureActionButton(
+                title = "拍照解析",
+                subtitle = "单张题图",
+                icon = Icons.Default.CameraAlt,
                 onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                modifier = Modifier.fillMaxWidth().height(56.dp)
-            ) {
-                Text(stringResource(R.string.take_photo))
-            }
+                primary = true
+            )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            OutlinedButton(
-                onClick = { galleryMultiLauncher.launch("image/*") },
-                modifier = Modifier.fillMaxWidth().height(56.dp)
-            ) {
-                Text("从相册选择（可多选）")
-            }
+            CaptureActionButton(
+                title = "多图合并",
+                subtitle = "多张拼成一道题",
+                icon = Icons.Default.Collections,
+                onClick = { mergeGalleryLauncher.launch("image/*") }
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            CaptureActionButton(
+                title = "批量解析",
+                subtitle = "多张分别出结果",
+                icon = Icons.Default.GridView,
+                onClick = { batchGalleryLauncher.launch("image/*") }
+            )
+        }
+    }
+}
+
+@Composable
+private fun CaptureActionButton(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    primary: Boolean = false
+) {
+    val modifier = Modifier.fillMaxWidth().height(64.dp)
+    if (primary) {
+        Button(onClick = onClick, modifier = modifier, shape = MaterialTheme.shapes.medium) {
+            CaptureActionContent(title = title, subtitle = subtitle, icon = icon)
+        }
+    } else {
+        OutlinedButton(onClick = onClick, modifier = modifier, shape = MaterialTheme.shapes.medium) {
+            CaptureActionContent(title = title, subtitle = subtitle, icon = icon)
+        }
+    }
+}
+
+@Composable
+private fun CaptureActionContent(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Icon(icon, contentDescription = null)
+        Column(horizontalAlignment = Alignment.Start) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

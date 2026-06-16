@@ -7,6 +7,10 @@
 - 摘要：完成 `question_blocks` 多题目块结构、`question_instruction` 题目要求字段、答案词义一次补全、任务缓存清理和文档同步。
 
 - 时间：2026-06-16
+- 更新类型：文档规范化
+- 摘要：规范化后端 PLAN / PROGRESS 状态，修正任务子项计数、计划完成时间和旧 fallback 表述。
+
+- 时间：2026-06-16
 - 更新类型：阶段完成
 - 摘要：完成后端 systemd 服务化改造，支持开机自启动，开启 linger 保证驻留运行。
 
@@ -58,7 +62,7 @@
 - 将 `schemas/homework_parse.schema.json` 升级为 JSON v2。
 - 更新 `ResponseSchemaGuard` 与 `LLMClient` 的 v2 字段识别。
 - 重写 `parse_pipeline` 提示词，覆盖通用英语练习题、题型判断、完整答案行和不确定性规则。
-- 增加并更新后端测试，覆盖 v2 成功、缺字段、非法 `role`、fallback 和 event stream 提取。
+- 增加并更新后端测试，覆盖 v2 成功、缺字段、非法 `role`、未知 `block_id` 和 event stream 提取。
 - 将任务持久化目录改为默认 `backend/job`，并支持 `HW_TASK_JOB_DIR` 覆盖，避免本地环境硬编码路径。
 - 新增 `question_instruction` 字段，用于提取图片中的英文题目要求原句、中文解释和识别置信度。
 - 新增 `question_blocks` 字段，用于区分同一图片中有关联但独立的多个题目块。

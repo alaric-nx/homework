@@ -50,6 +50,31 @@ fun HomeworkApp() {
     val originalUris = remember { mutableStateListOf<Uri>() }
     val cropTargetIndex = remember { mutableIntStateOf(-1) }
 
+    suspend fun createTaskFromBitmap(bitmap: Bitmap): String {
+        val (imagePath, thumbPath) = withContext(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            val imgFile = ImageUtils.compressForUpload(
+                context = context,
+                bitmap = bitmap,
+                name = "upload_$now.jpg"
+            )
+            val thumbFile = ImageUtils.saveToCacheFile(
+                context, bitmap, "thumb_$now.jpg", 60
+            )
+            imgFile.absolutePath to thumbFile.absolutePath
+        }
+        val taskId = UUID.randomUUID().toString()
+        val task = TaskEntity(
+            id = taskId,
+            status = "PENDING",
+            thumbnailPath = thumbPath,
+            imagePath = imagePath
+        )
+        app.taskRepository.insert(task)
+        UploadWorker.enqueue(context, taskId)
+        return taskId
+    }
+
     fun clearAll() {
         cropSegments.clear()
         originalUris.clear()
@@ -63,6 +88,20 @@ fun HomeworkApp() {
         navController.navigate(route) {
             popUpTo("capture") { inclusive = false }
             launchSingleTop = true
+        }
+    }
+
+    fun submitBatchImages(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        scope.launch {
+            val bitmaps = withContext(Dispatchers.IO) {
+                uris.mapNotNull { uri -> ImageUtils.loadBitmap(context, uri) }
+            }
+            bitmaps.forEach { bitmap ->
+                createTaskFromBitmap(bitmap)
+            }
+            clearAll()
+            navigateToTab("taskList")
         }
     }
 
@@ -111,6 +150,9 @@ fun HomeworkApp() {
                         if (navController.currentDestination?.route == "capture") {
                             navController.navigate("merge")
                         }
+                    },
+                    onBatchImagesSelected = { uris ->
+                        submitBatchImages(uris)
                     }
                 )
             }
@@ -175,22 +217,7 @@ fun HomeworkApp() {
                     },
                     onSubmitTask = { bitmap ->
                         scope.launch {
-                            val (imagePath, thumbPath) = withContext(Dispatchers.IO) {
-                                val imgFile = ImageUtils.compressForUpload(context, bitmap)
-                                val thumbFile = ImageUtils.saveToCacheFile(
-                                    context, bitmap, "thumb_${System.currentTimeMillis()}.jpg", 60
-                                )
-                                imgFile.absolutePath to thumbFile.absolutePath
-                            }
-                            val taskId = UUID.randomUUID().toString()
-                            val task = TaskEntity(
-                                id = taskId,
-                                status = "PENDING",
-                                thumbnailPath = thumbPath,
-                                imagePath = imagePath
-                            )
-                            app.taskRepository.insert(task)
-                            UploadWorker.enqueue(context, taskId)
+                            createTaskFromBitmap(bitmap)
                             clearAll()
                             navigateToTab("taskList")
                         }
