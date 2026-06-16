@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import re
 import tempfile
 import time
@@ -22,12 +23,18 @@ LEARNING_POINT_CATEGORY_ALIASES = {
     "vocabulary": "word",
     "sentence": "concept",
     "phonics": "word",
+    "pinyin": "word",
 }
+LEARNING_POINT_CATEGORIES = {"word", "concept", "formula", "unit", "method", "other"}
 READ_UNIT_TYPE_ALIASES = {
-    "instruction": "sentence",
-    "question_instruction": "sentence",
-    "text": "sentence",
+    "sentence": "text",
+    "paragraph": "text",
+    "answer": "text",
+    "explanation": "text",
+    "instruction": "text",
+    "question_instruction": "text",
 }
+READ_UNIT_TYPES = {"word", "text"}
 
 
 class ParsePipeline:
@@ -81,8 +88,10 @@ class ParsePipeline:
             "3) 字段必须齐全，不能缺失，不能新增字段；不要输出 reference_answer。\n"
             f"4) subject 必须固定输出为 \"{subject}\"。\n"
             "5) solution_steps 是数组，元素字段：block_id, number, title, content_zh, formula, result。\n"
-            "6) learning_points 是数组，元素字段：block_id, term, explanation_zh, pronunciation, category。\n"
-            "7) read_units 是数组，元素字段：block_id, unit_type, text, meaning_zh。\n"
+            "6) learning_points 是数组，元素字段：block_id, term, explanation_zh, pronunciation, category, label。\n"
+            "category 只能是 word, concept, formula, unit, method, other；语法点用 concept，短语/拼音/自然拼读用 word，细分类写入 label。\n"
+            "7) read_units 是数组，元素字段：block_id, unit_type, label, text, meaning_zh。unit_type 只能是 word 或 text；"
+            "题目要求、句子、段落、答案、讲解都用 text，细分类写入 label。\n"
             "8) uncertainty 字段：requires_review(boolean), confidence(0到1), reason(可空字符串)。\n"
             "9) question_meaning_zh 用中文概括整张图里的练习内容。如果有多个题目块，要说明包含几个题目块。\n"
             "10) question_instruction 字段用于提取整张图最上层或共同的题目要求原文，字段为："
@@ -154,8 +163,8 @@ class ParsePipeline:
             "- 若题目含编号，请按检测到的编号顺序给出 answer_lines；若无编号，请按题面阅读顺序组织。\n"
             "- 同一张图中两个相关题目不能混成一个题目块；例如第一题先补全单词、第二题再用这些词补句子，"
             "必须输出 q1 和 q2 两个 question_blocks。\n"
-            "- learning_points 只收录有助于理解题目、答案或易错点的知识点，不要硬凑。\n"
-            "- read_units 只收录适合 Android TTS 朗读的自然语言；复杂数学公式不要强行放入。\n"
+            "- learning_points 只收录有助于理解题目、答案或易错点的知识点，不要硬凑；label 可写 grammar, phrase, pinyin, phonics 等自由标签。\n"
+            "- read_units 只收录适合 Android TTS 朗读的自然语言；复杂数学公式不要强行放入；label 可写 instruction, answer, explanation 等自由标签。\n"
             "- read_units 应尽量包含题目要求和答案解释中适合朗读的内容。\n"
             "- subject=science 时，除非题目无需步骤，否则 solution_steps 至少 1 项。\n"
             "- 如果某个答案不确定，仍按编号保留位置，并在 uncertainty 中说明。\n"
@@ -237,8 +246,24 @@ class ParsePipeline:
                     continue
                 normalized_item = dict(item)
                 category = str(normalized_item.get("category") or "").strip().lower()
+                if normalized_item.get("label") is None and category:
+                    normalized_item["label"] = category
                 if category in LEARNING_POINT_CATEGORY_ALIASES:
-                    normalized_item["category"] = LEARNING_POINT_CATEGORY_ALIASES[category]
+                    mapped = LEARNING_POINT_CATEGORY_ALIASES[category]
+                    normalized_item["category"] = mapped
+                    logger.info(
+                        "enum_normalized field=learning_points.category from=%s to=%s label=%s",
+                        category,
+                        mapped,
+                        normalized_item.get("label"),
+                    )
+                elif category not in LEARNING_POINT_CATEGORIES:
+                    normalized_item["category"] = "other"
+                    logger.info(
+                        "enum_defaulted field=learning_points.category from=%s to=other label=%s",
+                        category,
+                        normalized_item.get("label"),
+                    )
                 normalized_points.append(normalized_item)
             out["learning_points"] = normalized_points
 
@@ -251,8 +276,24 @@ class ParsePipeline:
                     continue
                 normalized_unit = dict(unit)
                 unit_type = str(normalized_unit.get("unit_type") or "").strip().lower()
+                if normalized_unit.get("label") is None and unit_type:
+                    normalized_unit["label"] = unit_type
                 if unit_type in READ_UNIT_TYPE_ALIASES:
-                    normalized_unit["unit_type"] = READ_UNIT_TYPE_ALIASES[unit_type]
+                    mapped = READ_UNIT_TYPE_ALIASES[unit_type]
+                    normalized_unit["unit_type"] = mapped
+                    logger.info(
+                        "enum_normalized field=read_units.unit_type from=%s to=%s label=%s",
+                        unit_type,
+                        mapped,
+                        normalized_unit.get("label"),
+                    )
+                elif unit_type not in READ_UNIT_TYPES:
+                    normalized_unit["unit_type"] = "text"
+                    logger.info(
+                        "enum_defaulted field=read_units.unit_type from=%s to=text label=%s",
+                        unit_type,
+                        normalized_unit.get("label"),
+                    )
                 normalized_units.append(normalized_unit)
             out["read_units"] = normalized_units
         return out
@@ -330,6 +371,61 @@ class ParsePipeline:
             f"输入：{payload}"
         )
 
+    def _build_json_repair_prompt(
+        self, subject: str, candidate: Any, error_detail: str
+    ) -> str:
+        raw_json = json.dumps(candidate, ensure_ascii=False)
+        return (
+            "你是 JSON 契约修复助手。请只修复给定 JSON 的结构、字段名、字段类型、缺失空数组和枚举值，"
+            "不得重新解题，不得改变答案内容、题号、题目块、讲解含义。\n"
+            "只输出一个 JSON 对象，不要 markdown，不要代码块，不要额外文字。\n"
+            f"请求 subject 固定为：{subject}。输出 subject 必须等于该值。\n"
+            "顶层字段只能是：subject, question_meaning_zh, question_instruction, question_blocks, "
+            "answer_lines, solution_steps, explanation_zh, learning_points, read_units, uncertainty。\n"
+            "learning_points[].category 只能是 word, concept, formula, unit, method, other；"
+            "原始细分类放入 label。\n"
+            "read_units[].unit_type 只能是 word 或 text；原始细分类放入 label。\n"
+            "answer_lines[].segments[].role 只能是 given, answer, connector, correction。\n"
+            "所有数组字段必须存在，没有内容用空数组。\n"
+            "question_instruction 必须是对象，字段 text, meaning_zh, confidence。\n"
+            "answer_lines、solution_steps、learning_points、read_units 中的 block_id 必须对应 question_blocks，"
+            "learning_points/read_units 的 block_id 可以为 null。\n"
+            f"schema 错误：{error_detail}\n"
+            f"待修复 JSON：{raw_json}"
+        )
+
+    async def _repair_json_contract_once(
+        self,
+        candidate: Any,
+        subject: str,
+        model: str | None,
+        error: AppError,
+    ) -> HomeworkParseResult:
+        logger.info("parse_json_repair_start detail=%s", error.detail)
+        payload = await self.llm_client.generate_any_json(
+            self._build_json_repair_prompt(subject, candidate, error.detail),
+            model=model,
+        )
+        normalized = self._normalize_candidate(payload)
+        validated = self.schema_guard.validate_payload(normalized)
+        if validated.subject != subject:
+            raise AppError(
+                "SCHEMA_VALIDATION_FAILED",
+                f"response subject {validated.subject!r} does not match request subject {subject!r}",
+            )
+        logger.info("parse_json_repair_complete")
+        return validated
+
+    def _is_json_repair_allowed(self, error: AppError) -> bool:
+        detail = error.detail.lower()
+        if "does not match request subject" in detail:
+            return False
+        if "not found in question_blocks" in detail:
+            return False
+        if "segments" in detail and "role" in detail:
+            return False
+        return True
+
     def _merge_vocabulary_items(
         self, result: HomeworkParseResult, items: list[dict[str, Any]]
     ) -> HomeworkParseResult:
@@ -365,6 +461,7 @@ class ParsePipeline:
                         explanation_zh=meaning,
                         pronunciation=ipa or None,
                         category="word",
+                        label="vocabulary",
                     )
                 )
                 existing_vocab.add(key)
@@ -372,6 +469,7 @@ class ParsePipeline:
                 updated.read_units.append(
                     ReadUnit(
                         unit_type="word",
+                        label="vocabulary",
                         text=word,
                         meaning_zh=meaning,
                     )
@@ -452,20 +550,41 @@ class ParsePipeline:
         )
 
         normalized_candidate = self._normalize_candidate(candidate)
+        used_json_repair = False
         try:
-            validated = self.schema_guard.validate_payload(normalized_candidate)
-            if validated.subject != subject:
-                raise AppError(
-                    "SCHEMA_VALIDATION_FAILED",
-                    f"response subject {validated.subject!r} does not match request subject {subject!r}",
-                )
-            if subject == "english":
-                validated = await self._repair_missing_vocabulary(validated, model)
-            logger.info(
-                "pipeline_step schema_validate elapsed=%.2fs",
-                time.perf_counter() - start_ts,
-            )
-            return validated
+            validated = self._validate_subject_result(normalized_candidate, subject)
         except AppError as first_error:
             logger.warning("schema_validation_failed detail=%s", first_error.detail)
-            raise
+            if not self._is_json_repair_allowed(first_error):
+                raise
+            try:
+                validated = await self._repair_json_contract_once(
+                    candidate=candidate,
+                    subject=subject,
+                    model=model,
+                    error=first_error,
+                )
+                used_json_repair = True
+            except AppError as repair_error:
+                logger.warning("schema_repair_failed detail=%s", repair_error.detail)
+                raise repair_error
+
+        if subject == "english" and not used_json_repair:
+            validated = await self._repair_missing_vocabulary(validated, model)
+        logger.info(
+            "pipeline_step schema_validate elapsed=%.2fs json_repair=%s",
+            time.perf_counter() - start_ts,
+            used_json_repair,
+        )
+        return validated
+
+    def _validate_subject_result(
+        self, payload: dict[str, Any], subject: str
+    ) -> HomeworkParseResult:
+        validated = self.schema_guard.validate_payload(payload)
+        if validated.subject != subject:
+            raise AppError(
+                "SCHEMA_VALIDATION_FAILED",
+                f"response subject {validated.subject!r} does not match request subject {subject!r}",
+            )
+        return validated

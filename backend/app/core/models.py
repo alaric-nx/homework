@@ -14,13 +14,15 @@ class LearningPoint(BaseModel):
     term: str = Field(min_length=1)
     explanation_zh: str = Field(min_length=1)
     pronunciation: str | None = None
-    category: Literal["word", "pinyin", "concept", "formula", "unit", "method", "other"] = "other"
+    category: Literal["word", "concept", "formula", "unit", "method", "other"] = "other"
+    label: str | None = None
 
 
 class ReadUnit(BaseModel):
     model_config = ConfigDict(extra="forbid")
     block_id: str | None = None
-    unit_type: Literal["word", "sentence", "paragraph", "answer", "explanation"]
+    unit_type: Literal["word", "text"]
+    label: str | None = None
     text: str = Field(min_length=1)
     meaning_zh: str | None = None
 

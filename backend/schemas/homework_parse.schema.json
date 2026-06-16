@@ -160,7 +160,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["block_id", "term", "explanation_zh", "pronunciation", "category"],
+        "required": ["block_id", "term", "explanation_zh", "pronunciation", "category", "label"],
         "properties": {
           "block_id": {
             "type": ["string", "null"]
@@ -178,7 +178,10 @@
           },
           "category": {
             "type": "string",
-            "enum": ["word", "pinyin", "concept", "formula", "unit", "method", "other"]
+            "enum": ["word", "concept", "formula", "unit", "method", "other"]
+          },
+          "label": {
+            "type": ["string", "null"]
           }
         }
       }
@@ -188,14 +191,17 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["block_id", "unit_type", "text", "meaning_zh"],
+        "required": ["block_id", "unit_type", "label", "text", "meaning_zh"],
         "properties": {
           "block_id": {
             "type": ["string", "null"]
           },
           "unit_type": {
             "type": "string",
-            "enum": ["word", "sentence", "paragraph", "answer", "explanation"]
+            "enum": ["word", "text"]
+          },
+          "label": {
+            "type": ["string", "null"]
           },
           "text": {
             "type": "string",

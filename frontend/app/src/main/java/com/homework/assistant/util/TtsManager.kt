@@ -1,9 +1,11 @@
 package com.homework.assistant.util
 
-import android.media.AudioAttributes
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -22,7 +24,9 @@ import java.util.Locale
 class TtsManager(private val appContext: Context) {
 
     private val speechRate = 0.78f
+    private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var tts: TextToSpeech? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
     @Volatile private var isReady = false
     @Volatile private var initStarted = false
     @Volatile private var initFailed = false
@@ -178,11 +182,15 @@ class TtsManager(private val appContext: Context) {
         } catch (_: Exception) {}
     }
 
-    fun stop() { tts?.stop() }
+    fun stop() {
+        tts?.stop()
+        abandonAudioFocus()
+    }
 
     fun shutdown() {
         tts?.stop()
         tts?.shutdown()
+        abandonAudioFocus()
         tts = null
         isReady = false
         initStarted = false
@@ -224,16 +232,19 @@ class TtsManager(private val appContext: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             engine.setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build()
             )
         }
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) = Unit
-            override fun onDone(utteranceId: String?) = Unit
+            override fun onDone(utteranceId: String?) {
+                abandonAudioFocus()
+            }
             override fun onError(utteranceId: String?) {
                 Log.e("TtsManager", "utterance error id=$utteranceId")
+                abandonAudioFocus()
             }
         })
 
@@ -248,6 +259,7 @@ class TtsManager(private val appContext: Context) {
     }
 
     private fun speakInternal(engine: TextToSpeech, text: String, utteranceId: String): Int {
+        requestAudioFocus()
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             val params = Bundle().apply {
                 putString(TextToSpeech.Engine.KEY_PARAM_VOLUME, "1.0")
@@ -257,6 +269,47 @@ class TtsManager(private val appContext: Context) {
             @Suppress("DEPRECATION")
             val params = hashMapOf(TextToSpeech.Engine.KEY_PARAM_VOLUME to "1.0")
             engine.speak(text, TextToSpeech.QUEUE_FLUSH, params)
+        }
+    }
+
+    private fun requestAudioFocus() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    )
+                    .setAcceptsDelayedFocusGain(false)
+                    .build()
+                audioFocusRequest = request
+                audioManager.requestAudioFocus(request)
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.requestAudioFocus(
+                    null,
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+                )
+            }
+        } catch (e: Exception) {
+            Log.w("TtsManager", "request audio focus failed: ${e.message}")
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+                audioFocusRequest = null
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.abandonAudioFocus(null)
+            }
+        } catch (e: Exception) {
+            Log.w("TtsManager", "abandon audio focus failed: ${e.message}")
         }
     }
 

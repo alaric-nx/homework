@@ -4,6 +4,8 @@ import android.Manifest
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -14,8 +16,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.homework.assistant.HomeworkApplication
@@ -88,45 +93,100 @@ fun CaptureScreen(
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }) }
+        topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }) },
+        containerColor = Color(0xFFF7F8FA)
     ) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(32.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            CaptureHeader()
+
+            CapturePanel(
+                selectedSubject = normalizeSubject(selectedSubject),
+                onSubjectSelected = onSubjectSelected,
+                onTakePhoto = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+                onMergeImages = { mergeGalleryLauncher.launch("image/*") },
+                onBatchImages = { batchGalleryLauncher.launch("image/*") }
+            )
+        }
+    }
+}
+
+@Composable
+private fun CaptureHeader() {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            "拍题解析",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFF172033)
+        )
+        Text(
+            "选择学科后拍照、合并多图，或批量创建解析任务。",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color(0xFF667085)
+        )
+    }
+}
+
+@Composable
+private fun CapturePanel(
+    selectedSubject: String,
+    onSubjectSelected: (String) -> Unit,
+    onTakePhoto: () -> Unit,
+    onMergeImages: () -> Unit,
+    onBatchImages: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFEFC)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(1.dp, Color(0xFFE4E8EE))
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             SubjectSelector(
-                selectedSubject = normalizeSubject(selectedSubject),
+                selectedSubject = selectedSubject,
                 onSubjectSelected = onSubjectSelected
             )
 
-            Spacer(modifier = Modifier.height(22.dp))
-
             CaptureActionButton(
                 title = "拍照解析",
-                subtitle = "单张题图",
+                subtitle = "适合单页、单张题图",
                 icon = Icons.Default.CameraAlt,
-                onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+                onClick = onTakePhoto,
                 primary = true
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            CaptureActionButton(
-                title = "多图合并",
-                subtitle = "多张拼成一道题",
-                icon = Icons.Default.Collections,
-                onClick = { mergeGalleryLauncher.launch("image/*") }
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            CaptureActionButton(
-                title = "批量解析",
-                subtitle = "多张分别出结果",
-                icon = Icons.Default.GridView,
-                onClick = { batchGalleryLauncher.launch("image/*") }
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                CompactCaptureAction(
+                    title = "多图合并",
+                    subtitle = "拼成一道题",
+                    icon = Icons.Default.Collections,
+                    onClick = onMergeImages,
+                    modifier = Modifier.weight(1f)
+                )
+                CompactCaptureAction(
+                    title = "批量解析",
+                    subtitle = "多张分别解析",
+                    icon = Icons.Default.GridView,
+                    onClick = onBatchImages,
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
     }
 }
@@ -169,17 +229,17 @@ private fun SubjectSelector(
 private fun CaptureActionButton(
     title: String,
     subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     onClick: () -> Unit,
     primary: Boolean = false
 ) {
-    val modifier = Modifier.fillMaxWidth().height(64.dp)
+    val modifier = Modifier.fillMaxWidth().height(68.dp)
     if (primary) {
-        Button(onClick = onClick, modifier = modifier, shape = MaterialTheme.shapes.medium) {
+        Button(onClick = onClick, modifier = modifier, shape = RoundedCornerShape(8.dp)) {
             CaptureActionContent(title = title, subtitle = subtitle, icon = icon)
         }
     } else {
-        OutlinedButton(onClick = onClick, modifier = modifier, shape = MaterialTheme.shapes.medium) {
+        OutlinedButton(onClick = onClick, modifier = modifier, shape = RoundedCornerShape(8.dp)) {
             CaptureActionContent(title = title, subtitle = subtitle, icon = icon)
         }
     }
@@ -189,7 +249,7 @@ private fun CaptureActionButton(
 private fun CaptureActionContent(
     title: String,
     subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector
+    icon: ImageVector
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -200,6 +260,50 @@ private fun CaptureActionContent(
         Column(horizontalAlignment = Alignment.Start) {
             Text(title, style = MaterialTheme.typography.titleSmall)
             Text(subtitle, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun CompactCaptureAction(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier.height(92.dp),
+        shape = RoundedCornerShape(8.dp),
+        contentPadding = PaddingValues(12.dp),
+        border = BorderStroke(1.dp, Color(0xFFD8DEE8))
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+            horizontalAlignment = Alignment.Start
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .background(Color(0xFFEAF3FF), RoundedCornerShape(7.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = Color(0xFF1565C0))
+            }
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF172033)
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF667085),
+                maxLines = 1
+            )
         }
     }
 }

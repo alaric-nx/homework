@@ -163,6 +163,7 @@ private fun TaskCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     SubjectBadge(task.subject)
+                    ModelBadge(task.modelName)
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 StatusLabel(task.status)
@@ -204,6 +205,24 @@ private fun SubjectBadge(subject: String) {
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun ModelBadge(modelName: String) {
+    val label = modelName.trim().ifBlank { "default" }
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

@@ -78,8 +78,17 @@ class UploadWorker(
             return Result.failure()
         }
 
-        // 确保状态为 RUNNING
-        repo.update(task.copy(status = "RUNNING", updatedAt = System.currentTimeMillis()))
+        val model = settings.modelName.trim()
+        val displayModel = model.ifBlank { "default" }
+
+        // 确保状态为 RUNNING，并记录本次任务实际使用的模型。
+        repo.update(
+            task.copy(
+                status = "RUNNING",
+                modelName = displayModel,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
 
         val imageFile = File(task.imagePath)
         if (!imageFile.exists()) {
@@ -89,7 +98,6 @@ class UploadWorker(
         }
 
         // 1) 提交解析请求，获得后端 task_id
-        val model = settings.modelName
         val subject = normalizeSubject(task.subject)
         val submitResult = api.submitParse(imageFile, model, subject = subject, force = force)
         val backendTaskId = submitResult.fold(

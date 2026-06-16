@@ -99,13 +99,15 @@ data class LearningPoint(
     val term: String = "",
     val explanation_zh: String = "",
     val pronunciation: String? = null,
-    val category: String = "other"
+    val category: String = "other",
+    val label: String? = null
 )
 
 data class ReadUnit(
     val block_id: String? = null,
     @SerializedName("unit_type")
-    val unit_type: String = "sentence",
+    val unit_type: String = "text",
+    val label: String? = null,
     val text: String = "",
     val meaning_zh: String? = null
 )

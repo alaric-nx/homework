@@ -96,9 +96,13 @@ def test_normalize_candidate_maps_model_enum_aliases() -> None:
         "confidence": 0.0,
     }
     assert out["learning_points"][0]["category"] == "concept"
+    assert out["learning_points"][0]["label"] == "grammar"
     assert out["learning_points"][1]["category"] == "word"
-    assert out["read_units"][0]["unit_type"] == "sentence"
-    assert out["read_units"][1]["unit_type"] == "sentence"
+    assert out["learning_points"][1]["label"] == "phrase"
+    assert out["read_units"][0]["unit_type"] == "text"
+    assert out["read_units"][0]["label"] == "instruction"
+    assert out["read_units"][1]["unit_type"] == "text"
+    assert out["read_units"][1]["label"] == "text"
 
 
 def test_mark_missing_vocabulary_updates_uncertainty() -> None:
@@ -141,13 +145,13 @@ def test_mark_missing_vocabulary_updates_uncertainty() -> None:
                     "term": "student",
                     "explanation_zh": "学生",
                     "pronunciation": "/ˈstuːdnt/",
-                    "category": "word",
+                    "category": "word", "label": "vocabulary",
                 }
             ],
             "read_units": [
                 {
                     "block_id": "q1",
-                    "unit_type": "sentence",
+                    "unit_type": "text", "label": "sentence",
                     "text": "I am a student.",
                     "meaning_zh": "我是一名学生。",
                 }
@@ -217,13 +221,13 @@ def test_repair_missing_vocabulary_calls_model_once() -> None:
                     "term": "student",
                     "explanation_zh": "学生",
                     "pronunciation": "/ˈstuːdnt/",
-                    "category": "word",
+                    "category": "word", "label": "vocabulary",
                 }
             ],
             "read_units": [
                 {
                     "block_id": "q1",
-                    "unit_type": "sentence",
+                    "unit_type": "text", "label": "sentence",
                     "text": "I am a student.",
                     "meaning_zh": "我是一名学生。",
                 }
@@ -304,3 +308,122 @@ def test_run_rejects_response_subject_mismatch() -> None:
         assert "does not match request subject" in exc.detail
     else:
         raise AssertionError("expected subject mismatch to fail")
+
+
+def test_run_repairs_json_contract_once_for_low_risk_schema_error() -> None:
+    class FakeLLMClient:
+        def __init__(self) -> None:
+            self.repair_calls = 0
+
+        async def generate_json(
+            self,
+            prompt: str,
+            file_paths: list[str] | None = None,
+            model: str | None = None,
+        ) -> dict:
+            return {
+                "subject": "english",
+                "question_meaning_zh": "补全句子。",
+                "question_instruction": "Complete the sentence.",
+                "question_blocks": [
+                    {
+                        "block_id": "q1",
+                        "title": "第1题",
+                        "question_instruction": "Complete the sentence.",
+                        "question_meaning_zh": "补全完整句子。",
+                    }
+                ],
+                "answer_lines": [
+                    {
+                        "block_id": "q1",
+                        "number": "1",
+                        "line_type": "fill_blank",
+                        "plain_text": "I am a student.",
+                        "segments": [{"text": "I am a student.", "role": "answer"}],
+                    }
+                ],
+                "solution_steps": [],
+                "explanation_zh": "I 后面用 am。",
+                "learning_points": [
+                    {
+                        "block_id": "q1",
+                        "term": "am",
+                        "explanation_zh": "是",
+                        "pronunciation": "/æm/",
+                        "category": "grammar",
+                    }
+                ],
+                "read_units": [
+                    {
+                        "block_id": "q1",
+                        "unit_type": "instruction",
+                        "text": "Complete the sentence.",
+                        "meaning_zh": "补全句子。",
+                    }
+                ],
+                "uncertainty": {"requires_review": False, "confidence": 0.95, "reason": None},
+            }
+
+        async def generate_any_json(self, prompt: str, model: str | None = None) -> dict:
+            self.repair_calls += 1
+            return {
+                "subject": "english",
+                "question_meaning_zh": "补全句子。",
+                "question_instruction": {
+                    "text": "Complete the sentence.",
+                    "meaning_zh": "补全句子。",
+                    "confidence": 0.95,
+                },
+                "question_blocks": [
+                    {
+                        "block_id": "q1",
+                        "title": "第1题",
+                        "question_instruction": {
+                            "text": "Complete the sentence.",
+                            "meaning_zh": "补全句子。",
+                            "confidence": 0.95,
+                        },
+                        "question_meaning_zh": "补全完整句子。",
+                    }
+                ],
+                "answer_lines": [
+                    {
+                        "block_id": "q1",
+                        "number": "1",
+                        "line_type": "fill_blank",
+                        "plain_text": "I am a student.",
+                        "segments": [{"text": "I am a student.", "role": "answer"}],
+                    }
+                ],
+                "solution_steps": [],
+                "explanation_zh": "I 后面用 am。",
+                "learning_points": [
+                    {
+                        "block_id": "q1",
+                        "term": "am",
+                        "explanation_zh": "是",
+                        "pronunciation": "/æm/",
+                        "category": "concept",
+                        "label": "grammar",
+                    }
+                ],
+                "read_units": [
+                    {
+                        "block_id": "q1",
+                        "unit_type": "text",
+                        "label": "instruction",
+                        "text": "Complete the sentence.",
+                        "meaning_zh": "补全句子。",
+                    }
+                ],
+                "uncertainty": {"requires_review": False, "confidence": 0.95, "reason": None},
+            }
+
+    llm_client = FakeLLMClient()
+    pipeline = ParsePipeline(llm_client, Settings())
+
+    out = asyncio.run(pipeline.run(image_bytes=None, model=None, subject="english"))
+
+    assert llm_client.repair_calls == 1
+    assert out.learning_points[0].label == "grammar"
+    assert out.read_units[0].unit_type == "text"

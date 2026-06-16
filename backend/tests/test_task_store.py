@@ -47,14 +47,14 @@ def _task_payload(updated_at: float, schema_version: int = TASK_RESULT_SCHEMA_VE
             "solution_steps": [],
             "explanation_zh": "I 后面用 am。",
             "learning_points": [
-                {"block_id": "q1", "term": "I", "explanation_zh": "我", "pronunciation": "/aɪ/", "category": "word"},
-                {"block_id": "q1", "term": "am", "explanation_zh": "是", "pronunciation": "/æm/", "category": "word"},
-                {"block_id": "q1", "term": "student", "explanation_zh": "学生", "pronunciation": "/ˈstuːdnt/", "category": "word"},
+                {"block_id": "q1", "term": "I", "explanation_zh": "我", "pronunciation": "/aɪ/", "category": "word", "label": "vocabulary"},
+                {"block_id": "q1", "term": "am", "explanation_zh": "是", "pronunciation": "/æm/", "category": "word", "label": "vocabulary"},
+                {"block_id": "q1", "term": "student", "explanation_zh": "学生", "pronunciation": "/ˈstuːdnt/", "category": "word", "label": "vocabulary"},
             ],
             "read_units": [
                 {
                     "block_id": "q1",
-                    "unit_type": "sentence",
+                    "unit_type": "text", "label": "sentence",
                     "text": "I am a student.",
                     "meaning_zh": "我是一名学生。",
                 }

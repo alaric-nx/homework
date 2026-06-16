@@ -1416,7 +1416,6 @@ private fun answerSegmentColor(role: String): Color {
 private fun learningPointCategoryLabel(category: String): String {
     return when (category.lowercase(Locale.US)) {
         "word" -> "单词"
-        "pinyin" -> "拼音"
         "concept" -> "概念"
         "formula" -> "公式"
         "unit" -> "单位"
@@ -1462,7 +1461,7 @@ private fun buildVocabularyLookup(
 
 private fun buildSentenceTranslationLookup(units: List<ReadUnit>): Map<String, String> {
     val lookup = linkedMapOf<String, String>()
-    units.filter { it.unit_type in setOf("sentence", "answer", "paragraph", "explanation") }.forEach { unit ->
+    units.filter { it.unit_type == "text" }.forEach { unit ->
         val translation = unit.meaning_zh?.trim()
         if (translation.isNullOrBlank()) return@forEach
         val key = normalizeSentence(unit.text)
