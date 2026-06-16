@@ -45,6 +45,62 @@ def test_normalize_candidate_passthrough_non_dict() -> None:
     assert pipeline._normalize_candidate("not-a-dict") == "not-a-dict"
 
 
+def test_normalize_candidate_maps_model_enum_aliases() -> None:
+    pipeline = ParsePipeline.__new__(ParsePipeline)
+    candidate = {
+        "question_blocks": [
+            {
+                "block_id": "q1",
+                "title": "Practice A",
+                "question_instruction": "Fill in the blanks with 'must' or 'mustn't' and the words given.",
+                "question_meaning_zh": "用 must 或 mustn't 补全句子。",
+            }
+        ],
+        "learning_points": [
+            {
+                "block_id": "q1",
+                "term": "must",
+                "explanation_zh": "情态动词，表示必须。",
+                "pronunciation": None,
+                "category": "grammar",
+            },
+            {
+                "block_id": "q1",
+                "term": "play football",
+                "explanation_zh": "踢足球。",
+                "pronunciation": None,
+                "category": "phrase",
+            },
+        ],
+        "read_units": [
+            {
+                "block_id": "q1",
+                "unit_type": "instruction",
+                "text": "Re-arrange the words into correct sentences.",
+                "meaning_zh": "把单词重新排列成正确句子。",
+            },
+            {
+                "block_id": "q1",
+                "unit_type": "text",
+                "text": "You must sit down.",
+                "meaning_zh": "你必须坐下。",
+            }
+        ],
+    }
+
+    out = pipeline._normalize_candidate(candidate)
+
+    assert out["question_blocks"][0]["question_instruction"] == {
+        "text": "Fill in the blanks with 'must' or 'mustn't' and the words given.",
+        "meaning_zh": "",
+        "confidence": 0.0,
+    }
+    assert out["learning_points"][0]["category"] == "concept"
+    assert out["learning_points"][1]["category"] == "word"
+    assert out["read_units"][0]["unit_type"] == "sentence"
+    assert out["read_units"][1]["unit_type"] == "sentence"
+
+
 def test_mark_missing_vocabulary_updates_uncertainty() -> None:
     pipeline = ParsePipeline.__new__(ParsePipeline)
     result = HomeworkParseResult.model_validate(

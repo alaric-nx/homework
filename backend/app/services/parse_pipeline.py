@@ -16,6 +16,18 @@ from app.skills.common.response_schema_guard import ResponseSchemaGuard
 logger = logging.getLogger(__name__)
 ENGLISH_WORD_RE = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)?")
 VOCAB_SKIP_WORDS = {"a", "an", "the"}
+LEARNING_POINT_CATEGORY_ALIASES = {
+    "grammar": "concept",
+    "phrase": "word",
+    "vocabulary": "word",
+    "sentence": "concept",
+    "phonics": "word",
+}
+READ_UNIT_TYPE_ALIASES = {
+    "instruction": "sentence",
+    "question_instruction": "sentence",
+    "text": "sentence",
+}
 
 
 class ParsePipeline:
@@ -169,6 +181,13 @@ class ParsePipeline:
                 normalized_block["block_id"] = str(
                     normalized_block.get("block_id") or f"q{index + 1}"
                 ).strip()
+                instruction = normalized_block.get("question_instruction")
+                if isinstance(instruction, str):
+                    normalized_block["question_instruction"] = {
+                        "text": instruction.strip(),
+                        "meaning_zh": "",
+                        "confidence": 0.0,
+                    }
                 normalized_blocks.append(normalized_block)
             out["question_blocks"] = normalized_blocks
 
@@ -208,6 +227,34 @@ class ParsePipeline:
                 normalized_step["number"] = str(normalized_step.get("number") or "").strip()
                 normalized_steps.append(normalized_step)
             out["solution_steps"] = normalized_steps
+
+        learning_points = out.get("learning_points")
+        if isinstance(learning_points, list):
+            normalized_points: list[Any] = []
+            for item in learning_points:
+                if not isinstance(item, dict):
+                    normalized_points.append(item)
+                    continue
+                normalized_item = dict(item)
+                category = str(normalized_item.get("category") or "").strip().lower()
+                if category in LEARNING_POINT_CATEGORY_ALIASES:
+                    normalized_item["category"] = LEARNING_POINT_CATEGORY_ALIASES[category]
+                normalized_points.append(normalized_item)
+            out["learning_points"] = normalized_points
+
+        read_units = out.get("read_units")
+        if isinstance(read_units, list):
+            normalized_units: list[Any] = []
+            for unit in read_units:
+                if not isinstance(unit, dict):
+                    normalized_units.append(unit)
+                    continue
+                normalized_unit = dict(unit)
+                unit_type = str(normalized_unit.get("unit_type") or "").strip().lower()
+                if unit_type in READ_UNIT_TYPE_ALIASES:
+                    normalized_unit["unit_type"] = READ_UNIT_TYPE_ALIASES[unit_type]
+                normalized_units.append(normalized_unit)
+            out["read_units"] = normalized_units
         return out
 
     def _normalize_word(self, raw: str) -> str:
