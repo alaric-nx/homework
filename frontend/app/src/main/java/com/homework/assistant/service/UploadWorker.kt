@@ -35,9 +35,9 @@ class UploadWorker(
         private const val TAG = "UploadWorker"
 
         /** 轮询间隔（毫秒） */
-        private const val POLL_INTERVAL_MS = 2000L
+        private const val POLL_INTERVAL_MS = 3000L
         /** 最大轮询次数（35 × 2s ≈ 70s） */
-        private const val MAX_POLL_ATTEMPTS = 35
+        private const val MAX_POLL_ATTEMPTS = 200
 
         fun enqueue(context: Context, taskId: String) {
             val request = OneTimeWorkRequestBuilder<UploadWorker>()

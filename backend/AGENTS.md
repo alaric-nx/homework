@@ -3,13 +3,13 @@
 ## 目录职责
 本目录负责 Python 后端服务与模型编排：
 - 接收前端上传的完整题图
-- 通过 opencode 调用大模型
+ - 通过通用 OpenAI 兼容接口调用大模型
 - 通过 skills 组织 OCR、语义理解、解题流程
 - 返回固定 JSON 结果
 
 ## 技术约束
 - 语言：Python
-- 模型调用：opencode（支持代理启动）
+ - 模型调用：大语言模型（支持代理启动）
 - 编排：skills 分层
 - 学科：当前仅英语，预留语文/数学分流口
 
@@ -20,7 +20,7 @@
 - `response_schema_guard`：固定 JSON 约束
 
 ## 功能状态
-- [x] 后端路线已确定（Python + opencode + skills）
+ - [x] 后端路线已确定（Python + LLM + skills）
 - [x] 学科分流口已确定（先英语）
 - [x] subject_router skill
 - [x] ocr skill
@@ -64,7 +64,7 @@
 - 单文件/单用例：`python -m pytest tests/test_parse_api.py -q`
 - 导入冒烟检查：`python -c "from app.main import app"`
 - 启动服务：`bash backend/start_backend.sh`（先加载 config.env，再加载 .env 覆盖）
-- 说明：测试不依赖外部 opencode / 网络（opencode 调用在用例中被 mock 或通过 `HW_OPENCODE_ENABLED` 控制）
+ - 说明：测试不依赖外部大模型 / 网络（模型调用在用例中被 mock 或通过 `HW_LLM_ENABLED` 控制）
 
 ## 返回 JSON 目标字段
 - `question_meaning_zh`

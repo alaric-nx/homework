@@ -4,7 +4,7 @@
 本项目采用分层 AGENTS 文档：
 - 根文档（本文件）：给出全局目标、边界、阶段状态
 - `frontend/AGENTS.md`：前端 Android 端约束与任务
-- `backend/AGENTS.md`：后端 Python + opencode + skills 约束与任务
+- `backend/AGENTS.md`：后端 Python + llm + skills 约束与任务
 
 推荐阅读顺序：
 1. 先读根 `AGENTS.md`
@@ -28,7 +28,7 @@
 ## 已确定技术方案
 - 前端：Kotlin 原生 Android（Jetpack Compose）
 - 后端：Python
-- 模型调用：通过 opencode 调用大模型
+- 模型调用：通过 llm 调用大模型
 - 编排方式：skills 分层（现阶段仅英语）
 - 学科策略：预留语文/数学分流入口，当前只实现英语链路
 - 题目输入策略：前端完成裁剪与合并，后端接收合并后的完整题图
@@ -43,8 +43,8 @@
 - [x] 定义前端交互细节（裁剪页、合并页、结果页）
 - [x] 定义异常流程（上传失败、解析失败、超时重试）
 
-### B. 后端能力（Python + opencode + skills）
-- [x] 明确后端总体方向（Python + opencode）
+### B. 后端能力（Python + llm + skills）
+- [x] 明确后端总体方向（Python + llm）
 - [x] 明确 skills 分流口（english/chinese/math）
 - [x] 实现 subject router skill
 - [x] 实现 OCR skill
@@ -108,8 +108,8 @@
 - 前端说明：`/frontend/AGENTS.md`
 - 后端说明：`/backend/AGENTS.md`
 
-## Opencode Remote 图片触发规则（新增）
-当在项目根目录通过 opencode remote 进行交互时，若用户输入里包含“图片文件”（本地路径或上传图片），执行以下默认动作：
+## LLM Remote 图片触发规则（新增）
+当在项目根目录通过 llm remote 进行交互时，若用户输入里包含“图片文件”（本地路径或上传图片），执行以下默认动作：
 
 1. 直接触发 skills 链路，不要求先启动本项目后端服务。
 2. 优先使用已安装 OCR 相关 skills 进行识别与解析（当前已安装）：

@@ -9,7 +9,7 @@ from typing import Any
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.core.models import HomeworkParseResult
-from app.services.opencode_client import OpencodeClient
+from app.services.llm_client import LLMClient
 from app.skills.common.response_schema_guard import ResponseSchemaGuard
 
 logger = logging.getLogger(__name__)
@@ -18,12 +18,12 @@ logger = logging.getLogger(__name__)
 class ParsePipeline:
     """Simplified parse pipeline.
 
-    流程：构建 prompt（含图片附件）→ 大模型视觉理解（opencode）→ schema 校验。
+    流程：构建 prompt（含图片附件）→ 大模型视觉理解（LLM）→ schema 校验。
     不再经过 OCR 中间步骤，模型直接读取题图；也不再生成 answer_placements 坐标。
     """
 
-    def __init__(self, opencode_client: OpencodeClient, settings: Settings) -> None:
-        self.opencode_client = opencode_client
+    def __init__(self, llm_client: LLMClient, settings: Settings) -> None:
+        self.llm_client = llm_client
         self.settings = settings
         self.schema_guard = ResponseSchemaGuard()
 
@@ -104,7 +104,7 @@ class ParsePipeline:
             if image_bytes:
                 tmp_file = self._write_temp_image(image_bytes)
                 files.append(str(tmp_file))
-            return await self.opencode_client.generate_json(
+            return await self.llm_client.generate_json(
                 prompt, file_paths=files, model=model
             )
         finally:
@@ -123,7 +123,7 @@ class ParsePipeline:
         try:
             candidate = await self._call_model(prompt, image_bytes, model)
             logger.info(
-                "pipeline_step opencode elapsed=%.2fs model=%s",
+                "pipeline_step llm elapsed=%.2fs model=%s",
                 time.perf_counter() - start_ts,
                 (model or "").strip() or "<default>",
             )

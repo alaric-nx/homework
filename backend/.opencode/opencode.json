@@ -1,0 +1,40 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "cpa/claude-opus-4-8",
+  "provider": {
+    "cpa": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "OpenAI",
+      "options": {
+        "baseURL": "https://api-ai.for2.top/v1",
+        "apiKey": "sk-api-for2_DevOps"
+      },
+      "models": {
+        "claude-opus-4-8": {
+          "id": "claude-opus-4-8",
+          "name": "opus-4.8",
+          "cost": {
+            "input": 2.5,
+            "output": 10
+          },
+          "limit": {
+            "context": 200000,
+            "output": 32768
+          }
+        },
+        "claude-opus-4-6-thinking": {
+          "id": "claude-opus-4-6-thinking",
+          "name": "opus-4.6",
+          "cost": {
+            "input": 2.5,
+            "output": 10
+          },
+          "limit": {
+            "context": 131072,
+            "output": 32768
+          }
+        }
+      }
+    }
+  }
+}

@@ -105,7 +105,7 @@ Production recommendation:
 - `app/api/routes.py`: `/healthz` and `/v1/homework/parse`
 - `app/skills/common/subject_router.py`: subject routing (english/chinese/math; MVP only english enabled)
 - `app/skills/common/ocr_skill.py`: OCR skill placeholder adapter
-- `app/skills/english/english_solver_skill.py`: English solver skill with OpenCode adapter + fallback
+- `app/skills/english/english_solver_skill.py`: English solver skill with LLM adapter + fallback
 - `app/skills/common/response_schema_guard.py`: JSON schema guard + strict validation
 - `schemas/homework_parse.schema.json`: fixed output schema
 
@@ -155,21 +155,21 @@ ls -t output/filled-*.jpg | head -n 1
 curl -sS http://127.0.0.1:3000/v1/ocr/providers
 ```
 
-## 11) OpenCode Integration Notes
-- Backend does not install `opencode`; it only calls your local command when enabled.
+## 11) LLM Integration Notes
+- Backend does not install `llm`; it only calls your local command when enabled.
 - Runtime config is in `backend/config.env` (recommended single place).
-- `HW_OPENCODE_MODEL` can be empty (recommended) to use opencode default model.
+- `HW_LLM_MODEL` can be empty (recommended) to use llm default model.
 - Log settings:
   - `HW_APP_LOG_LEVEL=DEBUG`
   - `HW_APP_LOG_OUTPUT=file`
   - `HW_APP_LOG_FILE=logs/backend.log`
-  - `HW_OPENCODE_RAW_LOG_DIR=logs/opencode`
+  - `HW_LLM_RAW_LOG_DIR=logs/llm`
 - Expected CLI contract:
 ```bash
-opencode run --format json --model <model> "<prompt>"
+llm run --format json --model <model> "<prompt>"
 ```
-- If your local `opencode` command differs, only adjust:
-`app/services/opencode_client.py`
+- If your local `llm` command differs, only adjust:
+`app/services/llm_client.py`
 
 ## 12) OCR Plugin Providers
 - OCR skill is now pluggable and tries providers in configured order.
