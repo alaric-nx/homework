@@ -208,6 +208,100 @@ class LLMClient:
                 "MODEL_FAILED", "LLM API output is not valid JSON."
             ) from exc
 
+    async def generate_any_json(
+        self,
+        prompt: str,
+        file_paths: list[str] | None = None,
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        if not self.settings.llm_enabled:
+            raise AppError(
+                "MODEL_FAILED",
+                "LLM integration is disabled.",
+            )
+
+        config = self._load_config()
+        provider, model_name = self._resolve_provider_and_model(model, config)
+        base_url, api_key = self._load_api_credentials(provider, config)
+
+        content = [{"type": "text", "text": prompt}]
+        for path in file_paths or []:
+            try:
+                p = Path(path)
+                if p.exists():
+                    img_bytes = p.read_bytes()
+                    encoded = base64.b64encode(img_bytes).decode("utf-8")
+                    content.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
+                        }
+                    )
+            except Exception as e:
+                logger.error("Failed to read/encode file %s: %s", path, e)
+
+        payload = {
+            "model": model_name,
+            "messages": [{"role": "user", "content": content}],
+            "response_format": {"type": "json_object"},
+        }
+
+        proxy = None
+        if self.settings.proxy_all:
+            proxy = self.settings.proxy_all
+        elif self.settings.proxy_https:
+            proxy = self.settings.proxy_https
+        elif self.settings.proxy_http:
+            proxy = self.settings.proxy_http
+
+        timeout = httpx.Timeout(self.settings.llm_timeout_sec, connect=10.0)
+        try:
+            if proxy:
+                client = httpx.AsyncClient(timeout=timeout, proxy=proxy)
+            else:
+                client = httpx.AsyncClient(timeout=timeout)
+
+            async with client:
+                response = await client.post(
+                    f"{base_url.rstrip('/')}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+        except httpx.TimeoutException as exc:
+            raise AppError("TIMEOUT", "LLM API request timed out.") from exc
+        except Exception as exc:
+            logger.error("llm_api_call_exception: %s", exc)
+            raise AppError("MODEL_FAILED", f"LLM API request failed: {exc}") from exc
+
+        if response.status_code != 200:
+            logger.error(
+                "llm_api_call_failed status=%s response=%s",
+                response.status_code,
+                response.text.strip()[:500],
+            )
+            raise AppError(
+                "MODEL_FAILED",
+                f"LLM API request failed with status {response.status_code}.",
+            )
+
+        try:
+            resp_data = response.json()
+            content_text = resp_data["choices"][0]["message"]["content"]
+        except Exception as exc:
+            logger.error("Failed to parse LLM API response JSON: %s", exc)
+            raise AppError("MODEL_FAILED", "Failed to parse LLM API response JSON.")
+
+        self._dump_raw_output(prompt=prompt, stdout_text=content_text, stderr_text="")
+        try:
+            return self._parse_any_json_payload(content_text)
+        except json.JSONDecodeError as exc:
+            raise AppError(
+                "MODEL_FAILED", "LLM API output is not valid JSON."
+            ) from exc
+
     def _raise_if_error(self, payload: Any) -> None:
         if not isinstance(payload, dict):
             return
@@ -277,6 +371,38 @@ class LLMClient:
         payload = self._extract_candidate_payload(objects)
         if payload is not None:
             return payload
+
+        raise json.JSONDecodeError("no valid JSON object found", raw, 0)
+
+    def _parse_any_json_payload(self, raw: str) -> dict[str, Any]:
+        text = raw.strip()
+        if not text:
+            raise json.JSONDecodeError("empty output", raw, 0)
+
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                self._raise_if_error(parsed)
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+        fenced = re.findall(r"```(?:json)?\s*([\s\S]*?)```", text, flags=re.IGNORECASE)
+        for block in fenced:
+            try:
+                parsed = json.loads(block.strip())
+                if isinstance(parsed, dict):
+                    self._raise_if_error(parsed)
+                    return parsed
+            except json.JSONDecodeError:
+                continue
+
+        obj = self._extract_first_json_object(text)
+        if obj is not None:
+            parsed = json.loads(obj)
+            if isinstance(parsed, dict):
+                self._raise_if_error(parsed)
+                return parsed
 
         raise json.JSONDecodeError("no valid JSON object found", raw, 0)
 

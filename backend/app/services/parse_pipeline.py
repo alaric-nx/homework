@@ -9,7 +9,7 @@ from typing import Any
 
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.core.models import HomeworkParseResult
+from app.core.models import HomeworkParseResult, SpeakUnit, VocabularyItem
 from app.services.llm_client import LLMClient
 from app.skills.common.response_schema_guard import ResponseSchemaGuard
 
@@ -193,18 +193,21 @@ class ParsePipeline:
                 keys.add(key)
         return keys
 
-    def _mark_missing_vocabulary(
-        self, result: HomeworkParseResult
-    ) -> HomeworkParseResult:
+    def _missing_vocabulary_words(self, result: HomeworkParseResult) -> list[str]:
         expected: list[str] = []
         for line in result.answer_lines:
             expected.extend(self._coverage_candidates(line.plain_text))
         expected = list(dict.fromkeys(expected))
         if not expected:
-            return result
+            return []
 
         vocabulary_keys = self._vocabulary_keys(result)
-        missing = [word for word in expected if word not in vocabulary_keys]
+        return [word for word in expected if word not in vocabulary_keys]
+
+    def _mark_missing_vocabulary(
+        self, result: HomeworkParseResult, missing: list[str] | None = None
+    ) -> HomeworkParseResult:
+        missing = missing if missing is not None else self._missing_vocabulary_words(result)
         if not missing:
             return result
 
@@ -220,6 +223,91 @@ class ParsePipeline:
         updated.uncertainty.confidence = min(updated.uncertainty.confidence, 0.85)
         updated.uncertainty.reason = combined_reason
         return updated
+
+    def _build_vocabulary_repair_prompt(self, words: list[str]) -> str:
+        payload = {"words": words}
+        return (
+            "你是英语词汇释义助手。请只为给定英文词补充中文释义和 IPA。\n"
+            "只输出一个 JSON 对象，不要 markdown，不要代码块，不要额外文字。\n"
+            "输出格式：{\"items\":[{\"word\":\"...\",\"meaning_zh\":\"...\",\"ipa\":\"...\"}]}。\n"
+            "要求：\n"
+            "- items 数组必须覆盖输入 words 中每个词。\n"
+            "- word 保持输入单词原样。\n"
+            "- meaning_zh 用简短中文释义，适合小学生/家长理解。\n"
+            "- ipa 不确定可用 null。\n"
+            f"输入：{payload}"
+        )
+
+    def _merge_vocabulary_items(
+        self, result: HomeworkParseResult, items: list[dict[str, Any]]
+    ) -> HomeworkParseResult:
+        if not items:
+            return result
+
+        updated = result.model_copy(deep=True)
+        existing_vocab = {
+            self._normalize_word(item.word) for item in updated.key_vocabulary
+        }
+        existing_word_units = {
+            self._normalize_word(unit.text)
+            for unit in updated.speak_units
+            if unit.unit_type == "word"
+        }
+
+        for raw in items:
+            if not isinstance(raw, dict):
+                continue
+            word = str(raw.get("word", "")).strip()
+            meaning = str(raw.get("meaning_zh", "")).strip()
+            ipa_raw = raw.get("ipa")
+            ipa = str(ipa_raw).strip() if ipa_raw is not None else None
+            key = self._normalize_word(word)
+            if not key or not meaning:
+                continue
+            if key not in existing_vocab:
+                updated.key_vocabulary.append(
+                    VocabularyItem(word=word, meaning_zh=meaning, ipa=ipa or None)
+                )
+                existing_vocab.add(key)
+            if key not in existing_word_units:
+                updated.speak_units.append(
+                    SpeakUnit(unit_type="word", text=word, meaning_zh=meaning)
+                )
+                existing_word_units.add(key)
+        return updated
+
+    async def _repair_missing_vocabulary(
+        self, result: HomeworkParseResult, model: str | None
+    ) -> HomeworkParseResult:
+        missing = self._missing_vocabulary_words(result)
+        if not missing:
+            return result
+
+        logger.info("parse_vocabulary_repair_start words=%s", ", ".join(missing[:12]))
+        try:
+            payload = await self.llm_client.generate_any_json(
+                self._build_vocabulary_repair_prompt(missing), model=model
+            )
+        except AppError as exc:
+            logger.warning("parse_vocabulary_repair_failed detail=%s", exc.detail)
+            return self._mark_missing_vocabulary(result, missing)
+
+        items = payload.get("items")
+        if not isinstance(items, list):
+            logger.warning("parse_vocabulary_repair_invalid_payload payload=%s", payload)
+            return self._mark_missing_vocabulary(result, missing)
+
+        repaired = self._merge_vocabulary_items(result, items)
+        still_missing = self._missing_vocabulary_words(repaired)
+        if still_missing:
+            logger.info(
+                "parse_vocabulary_repair_incomplete words=%s",
+                ", ".join(still_missing[:12]),
+            )
+            return self._mark_missing_vocabulary(repaired, still_missing)
+
+        logger.info("parse_vocabulary_repair_complete count=%s", len(items))
+        return repaired
 
     def _write_temp_image(self, image_bytes: bytes) -> Path:
         with tempfile.NamedTemporaryFile(
@@ -267,7 +355,7 @@ class ParsePipeline:
         normalized_candidate = self._normalize_candidate(candidate)
         try:
             validated = self.schema_guard.validate_payload(normalized_candidate)
-            validated = self._mark_missing_vocabulary(validated)
+            validated = await self._repair_missing_vocabulary(validated, model)
             logger.info(
                 "pipeline_step schema_validate elapsed=%.2fs",
                 time.perf_counter() - start_ts,
@@ -282,7 +370,7 @@ class ParsePipeline:
             )
             fallback = self._fallback_output(reason=reason)
             validated = self.schema_guard.validate_payload(fallback)
-            validated = self._mark_missing_vocabulary(validated)
+            validated = await self._repair_missing_vocabulary(validated, model)
             logger.info(
                 "pipeline_step schema_validate_fallback elapsed=%.2fs",
                 time.perf_counter() - start_ts,
