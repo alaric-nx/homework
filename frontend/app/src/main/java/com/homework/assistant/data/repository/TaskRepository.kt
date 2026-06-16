@@ -4,8 +4,11 @@ import android.content.Context
 import com.homework.assistant.data.local.AppDatabase
 import com.homework.assistant.data.local.TaskDao
 import com.homework.assistant.data.local.TaskEntity
+import com.homework.assistant.data.remote.HomeworkApi
 import kotlinx.coroutines.flow.Flow
 import java.io.File
+import java.io.FileInputStream
+import java.security.MessageDigest
 
 class TaskRepository(context: Context) {
 
@@ -36,16 +39,55 @@ class TaskRepository(context: Context) {
     }
 
     suspend fun deleteAll() {
-        // 先清文件
-        dao.observeAll() // flow 不适合这里，直接用 getAll 替代
-        // 简单做法：直接删 DB，文件由缓存清理机制处理
+        // 先联动删除后端缓存并清理本地文件
+        dao.getAll().forEach { task ->
+            val imageFile = File(task.imagePath)
+            if (imageFile.exists()) {
+                val md5 = getFileMd5(imageFile)
+                if (md5.isNotBlank()) {
+                    kotlin.runCatching {
+                        HomeworkApi().deleteTask(md5)
+                    }
+                }
+            }
+            listOf(task.thumbnailPath, task.imagePath).forEach { path ->
+                try { File(path).delete() } catch (_: Exception) {}
+            }
+        }
         dao.deleteAll()
     }
 
     private suspend fun deleteWithFiles(task: TaskEntity) {
+        val imageFile = File(task.imagePath)
+        if (imageFile.exists()) {
+            val md5 = getFileMd5(imageFile)
+            if (md5.isNotBlank()) {
+                kotlin.runCatching {
+                    HomeworkApi().deleteTask(md5)
+                }
+            }
+        }
         listOf(task.thumbnailPath, task.imagePath).forEach { path ->
             try { File(path).delete() } catch (_: Exception) {}
         }
         dao.deleteById(task.id)
+    }
+
+    private fun getFileMd5(file: File): String {
+        if (!file.exists()) return ""
+        return try {
+            val digest = MessageDigest.getInstance("MD5")
+            val buffer = ByteArray(8192)
+            FileInputStream(file).use { stream ->
+                var read: Int
+                while (stream.read(buffer).also { read = it } > 0) {
+                    digest.update(buffer, 0, read)
+                }
+            }
+            val bytes = digest.digest()
+            bytes.joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            ""
+        }
     }
 }

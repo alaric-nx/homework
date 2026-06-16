@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
+from pathlib import Path
 
 from app.core.models import HomeworkParseResult, Task, TaskStatus
 
@@ -30,20 +32,95 @@ class TaskStore:
         self._tasks: dict[str, Task] = {}
         self._lock = asyncio.Lock()
         self._cleanup_task: asyncio.Task[None] | None = None
+        self.job_dir = Path("/home/z/work/homework/backend/job")
+        self.job_dir.mkdir(parents=True, exist_ok=True)
 
-    async def create(self, image_hash: str, model: str) -> Task:
-        """Create a new pending task with a UUID v4 identifier."""
+    def _save_task_to_disk(self, task: Task) -> None:
+        try:
+            data = {
+                "task_id": task.task_id,
+                "status": task.status.value,
+                "image_hash": task.image_hash,
+                "model": task.model,
+                "created_at": task.created_at,
+                "updated_at": task.updated_at,
+                "result": task.result.model_dump() if task.result else None,
+                "error_code": task.error_code,
+                "error_message": task.error_message,
+            }
+            file_path = self.job_dir / f"{task.task_id}.json"
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            logger.info("task_saved_to_disk task_id=%s", task.task_id)
+        except Exception as e:
+            logger.error("failed_to_save_task_to_disk task_id=%s: %s", task.task_id, e)
+
+    def _load_task_from_disk(self, task_id: str) -> Task | None:
+        file_path = self.job_dir / f"{task_id}.json"
+        if not file_path.exists():
+            return None
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            result_data = data.get("result")
+            result = None
+            if result_data:
+                result = HomeworkParseResult.model_validate(result_data)
+                
+            task = Task(
+                task_id=data["task_id"],
+                status=TaskStatus(data["status"]),
+                image_hash=data["image_hash"],
+                model=data["model"],
+                created_at=data["created_at"],
+                updated_at=data["updated_at"],
+                result=result,
+                error_code=data.get("error_code"),
+                error_message=data.get("error_message"),
+            )
+            logger.info("task_loaded_from_disk task_id=%s", task_id)
+            return task
+        except Exception as e:
+            logger.error("failed_to_load_task_from_disk task_id=%s: %s", task_id, e)
+            return None
+
+    async def create(self, image_hash: str, model: str, force: bool = False) -> Task:
+        """Create a new pending task or reuse an existing task unless force is True."""
         now = time.time()
-        task = Task(
-            task_id=str(uuid.uuid4()),
-            status=TaskStatus.PENDING,
-            image_hash=image_hash,
-            model=model,
-            created_at=now,
-            updated_at=now,
-        )
+        task_id = image_hash
         async with self._lock:
-            self._tasks[task.task_id] = task
+            # 如果不是强制重试，尝试复用
+            if not force:
+                # 1. 尝试从内存读取
+                if task_id in self._tasks:
+                    existing = self._tasks[task_id]
+                    if existing.status != TaskStatus.FAILED:
+                        logger.info("task_reused_from_memory task_id=%s status=%s", task_id, existing.status.value)
+                        return existing
+
+                # 2. 尝试从磁盘加载
+                disk_task = self._load_task_from_disk(task_id)
+                if disk_task:
+                    if disk_task.status != TaskStatus.FAILED:
+                        self._tasks[task_id] = disk_task
+                        logger.info("task_reused_from_disk task_id=%s status=%s", task_id, disk_task.status.value)
+                        return disk_task
+
+            # 3. 创建全新任务（如果是强制重试或者未找到缓存）
+            task = Task(
+                task_id=task_id,
+                status=TaskStatus.PENDING,
+                image_hash=image_hash,
+                model=model,
+                created_at=now,
+                updated_at=now,
+            )
+            self._tasks[task_id] = task
+            self._save_task_to_disk(task)
+            if force:
+                logger.info("task_force_recreated task_id=%s", task_id)
+
         logger.info(
             "task_created task_id=%s image_hash=%s model=%s",
             task.task_id,
@@ -55,7 +132,39 @@ class TaskStore:
     async def get(self, task_id: str) -> Task | None:
         """Return the task for the given id, or None if it does not exist."""
         async with self._lock:
-            return self._tasks.get(task_id)
+            # 优先从内存读取
+            task = self._tasks.get(task_id)
+            if task is not None:
+                return task
+                
+            # 内存没有，从磁盘加载
+            disk_task = self._load_task_from_disk(task_id)
+            if disk_task is not None:
+                self._tasks[task_id] = disk_task
+                return disk_task
+                
+            return None
+
+    async def delete(self, task_id: str) -> bool:
+        """Remove the task from memory and delete its JSON config from disk."""
+        async with self._lock:
+            # 1. 尝试从内存中移除
+            in_memory = self._tasks.pop(task_id, None) is not None
+            
+            # 2. 尝试从磁盘中删除
+            file_path = self.job_dir / f"{task_id}.json"
+            on_disk = False
+            if file_path.exists():
+                try:
+                    file_path.unlink(missing_ok=True)
+                    on_disk = True
+                except Exception as e:
+                    logger.error("failed_to_delete_task_from_disk task_id=%s: %s", task_id, e)
+                    
+            if in_memory or on_disk:
+                logger.info("task_deleted task_id=%s in_memory=%s on_disk=%s", task_id, in_memory, on_disk)
+                return True
+            return False
 
     async def update_status(
         self,
@@ -72,8 +181,13 @@ class TaskStore:
         async with self._lock:
             task = self._tasks.get(task_id)
             if task is None:
-                logger.warning("task_update_missing task_id=%s", task_id)
-                return None
+                # 尝试从磁盘加载
+                task = self._load_task_from_disk(task_id)
+                if task is None:
+                    logger.warning("task_update_missing task_id=%s", task_id)
+                    return None
+                self._tasks[task_id] = task
+
             task.status = status
             if result is not None:
                 task.result = result
@@ -82,6 +196,9 @@ class TaskStore:
             if error_message is not None:
                 task.error_message = error_message
             task.updated_at = time.time()
+
+            self._save_task_to_disk(task)
+
         logger.info("task_updated task_id=%s status=%s", task_id, status.value)
         return task
 

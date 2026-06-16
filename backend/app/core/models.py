@@ -78,6 +78,7 @@ class ParseSubmitResponse(BaseModel):
     task_id: str
     status: str
     image_hash: str
+    result: HomeworkParseResult | None = None
 
 
 class TaskStatusResponse(BaseModel):

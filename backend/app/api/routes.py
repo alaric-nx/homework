@@ -74,6 +74,7 @@ async def submit_parse(
     task_store: Annotated[TaskStore, Depends(get_task_store)],
     request: Request,
     model: str | None = Query(default=None),
+    force: bool = Query(default=False),
 ) -> ParseSubmitResponse:
     content_type = (request.headers.get("content-type") or "").lower()
     body = await request.body()
@@ -90,29 +91,38 @@ async def submit_parse(
 
     image_hash = hashlib.md5(body).hexdigest()
     model_value = (model or "").strip()
-    task = await task_store.create(image_hash=image_hash, model=model_value)
+    task = await task_store.create(image_hash=image_hash, model=model_value, force=force)
 
-    asyncio.create_task(
-        _run_parse_task(
-            task_store=task_store,
-            pipeline=pipeline,
-            task_id=task.task_id,
-            image_bytes=body,
-            model=model_value or None,
+    # 只有当任务是新创建的 PENDING 状态时，才触发异步解析任务
+    if task.status == TaskStatus.PENDING:
+        asyncio.create_task(
+            _run_parse_task(
+                task_store=task_store,
+                pipeline=pipeline,
+                task_id=task.task_id,
+                image_bytes=body,
+                model=model_value or None,
+            )
         )
-    )
 
     logger.info(
-        "parse_submitted task_id=%s image_hash=%s model=%s size=%s",
+        "parse_submitted task_id=%s image_hash=%s status=%s model=%s size=%s force=%s",
         task.task_id,
         image_hash,
+        task.status.value,
         model_value or "<default>",
         len(body),
+        force,
     )
+
+    # 如果任务已完成且并非被重置，直接在响应里附带 result 答案
+    response_result = task.result if task.status == TaskStatus.COMPLETED else None
+
     return ParseSubmitResponse(
         task_id=task.task_id,
         status=task.status.value,
         image_hash=image_hash,
+        result=response_result,
     )
 
 
@@ -140,3 +150,20 @@ async def get_task(
         error_code=task.error_code,
         error_message=task.error_message,
     )
+
+
+@router.delete("/v1/homework/tasks/{task_id}")
+async def delete_task(
+    task_store: Annotated[TaskStore, Depends(get_task_store)],
+    task_id: str,
+):
+    success = await task_store.delete(task_id)
+    if not success:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error_code": "TASK_NOT_FOUND",
+                "message": "Task with given ID does not exist.",
+            },
+        )
+    return {"status": "ok"}

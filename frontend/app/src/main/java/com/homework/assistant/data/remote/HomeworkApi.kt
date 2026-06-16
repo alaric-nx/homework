@@ -58,16 +58,23 @@ class HomeworkApi(
      * 异步提交解析请求：上传题图二进制，立即返回 task_id。
      * @param imageFile 合并压缩后的题图（JPEG）
      * @param model     指定模型名称，可为空字符串（为空时省略 model query 参数，由后端使用默认模型）
+     * @param force     是否强制重新解析（跳过缓存直接算）
      */
-    suspend fun submitParse(imageFile: File, model: String): Result<SubmitResponse> =
+    suspend fun submitParse(imageFile: File, model: String, force: Boolean = false): Result<SubmitResponse> =
         withContext(Dispatchers.IO) {
             try {
                 val body = imageFile.asRequestBody("image/jpeg".toMediaType())
 
                 val urlBuilder = StringBuilder("$baseUrl/v1/homework/parse")
+                val queryParams = mutableListOf<String>()
                 if (model.isNotBlank()) {
-                    urlBuilder.append("?model=")
-                        .append(URLEncoder.encode(model, "UTF-8"))
+                    queryParams.add("model=${URLEncoder.encode(model, "UTF-8")}")
+                }
+                if (force) {
+                    queryParams.add("force=true")
+                }
+                if (queryParams.isNotEmpty()) {
+                    urlBuilder.append("?").append(queryParams.joinToString("&"))
                 }
                 val url = urlBuilder.toString()
 
@@ -121,6 +128,33 @@ class HomeworkApi(
 
                 val parsed = gson.fromJson(responseBody, TaskStatusResponse::class.java)
                 Result.success(parsed)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    /**
+     * 联动删除后端的任务缓存（内存与本地磁盘文件）。
+     * @param taskId 任务 ID（图片的 MD5 哈希值）
+     */
+    suspend fun deleteTask(taskId: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = "$baseUrl/v1/homework/tasks/" +
+                    URLEncoder.encode(taskId, "UTF-8")
+
+                val request = Request.Builder()
+                    .url(url)
+                    .delete()
+                    .build()
+
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        HttpStatusException(response.code, "删除失败，服务器返回 ${response.code}\n$url")
+                    )
+                }
+                Result.success(Unit)
             } catch (e: Exception) {
                 Result.failure(e)
             }

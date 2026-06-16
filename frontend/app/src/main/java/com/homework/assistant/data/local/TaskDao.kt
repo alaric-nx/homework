@@ -42,4 +42,7 @@ interface TaskDao {
     /** 获取最早的任务（用于超限淘汰） */
     @Query("SELECT * FROM tasks ORDER BY createdAt ASC LIMIT 1")
     suspend fun oldest(): TaskEntity?
+
+    @Query("SELECT * FROM tasks")
+    suspend fun getAll(): List<TaskEntity>
 }
