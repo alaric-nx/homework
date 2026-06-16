@@ -15,6 +15,69 @@
 - 参考答案分段高亮
 - 点击词 / 句本地 TTS 发音
 
+## 多学科 v3 当前实现
+
+拍题页已新增学科选择器：
+
+- `通用`：默认选中，对应 `general`。
+- `英语`：对应 `english`，保持当前英语体验。
+- `文科`：对应 `liberal_arts`。
+- `理科`：对应 `science`。
+
+交互规则：
+
+- 用户先选择学科，再选择 `拍照解析`、`多图合并` 或 `批量解析`。
+- `多图合并` 生成一个任务，任务使用当前选中学科。
+- `批量解析` 生成多个任务，每个任务使用当前选中学科。
+- 重新解题必须沿用任务保存的 `subject`，不能使用当前页面临时选择值。
+
+数据规则：
+
+- `TaskEntity` 已新增 `subject: String = "general"`。
+- `HomeworkApi.submitParse()` 已新增 `subject` query 参数。
+- `UploadWorker` 从任务读取 `subject` 并传给后端。
+
+## 多学科 UI 细则
+
+拍题页布局：
+
+- 顶部在三个上传入口上方放学科选择器。
+- 学科选择器使用单选分段按钮，顺序为：`通用`、`英语`、`文科`、`理科`。
+- 默认选中 `通用`。
+- 选择状态在当前 App 会话内保持；创建任务时写入任务。
+- 三个入口按钮保持当前顺序：`拍照解析`、`多图合并`、`批量解析`。
+
+任务列表：
+
+- 每条任务显示学科标签。
+- 标签文案：`通用`、`英语`、`文科`、`理科`。
+- 标签颜色保持低饱和，不抢占任务状态。
+- 重新解题按钮不弹出学科选择，直接使用任务原 `subject`。
+
+结果页：
+
+- 顶部在题目原图或题目要求附近展示学科标签。
+- Section 顺序：
+  1. 题目原图
+  2. 不确定性提示
+  3. 学科标签 + 题目要求
+  4. 题目理解
+  5. 参考答案
+  6. 解题步骤
+  7. 讲解
+  8. 知识点
+  9. 可朗读内容
+- `solution_steps` 为空时不展示“解题步骤”区。
+- `learning_points` 为空时不展示“知识点”区。
+- `read_units` 为空时不展示“可朗读内容”区。
+
+结果页文案：
+
+- `词汇` 改为 `知识点`。
+- `暂无释义，点击可发音` 改为 `暂无解释，点击可朗读`。
+- 英语题中仍可展示 IPA 和单词释义。
+- 理科题中公式优先用普通文本展示，不强制朗读。
+
 ## 技术约束
 
 - 平台：Android 原生
@@ -46,7 +109,7 @@
 异步提交：
 
 ```text
-POST /v1/homework/parse?model=<可选模型名>
+POST /v1/homework/parse?subject=<general|english|liberal_arts|science>&model=<可选模型名>
 Content-Type: image/jpeg
 Body: raw JPEG bytes
 ```
@@ -67,18 +130,72 @@ Body: raw JPEG bytes
 GET /v1/homework/tasks/{task_id}
 ```
 
-完成响应中的 `result` 使用 JSON v2：
+完成响应中的 `result` 使用 JSON v3：
 
+- `subject`
 - `question_meaning_zh`
 - `question_instruction`
 - `question_blocks`
 - `answer_lines`
+- `solution_steps`
 - `explanation_zh`
-- `key_vocabulary`
-- `speak_units`
+- `learning_points`
+- `read_units`
 - `uncertainty`
 
 前端不再依赖 `reference_answer` 渲染参考答案区。
+
+展示规则：
+
+- `learning_points` 展示标题使用 `知识点`，不再使用英语限定的 `词汇`。
+- `read_units` 用于朗读入口；数学公式不强制朗读。
+- `solution_steps` 在参考答案后、讲解前展示，理科题重点展示。
+- 旧 v2 字段 `key_vocabulary`、`speak_units` 已在 v3 中被 `learning_points`、`read_units` 替换。
+
+前端目标数据模型：
+
+```kotlin
+data class ParseResult(
+    val subject: String = "general",
+    val question_meaning_zh: String = "",
+    val question_instruction: QuestionInstruction = QuestionInstruction(),
+    val question_blocks: List<QuestionBlock> = emptyList(),
+    val answer_lines: List<AnswerLine> = emptyList(),
+    val solution_steps: List<SolutionStep> = emptyList(),
+    val explanation_zh: String = "",
+    val learning_points: List<LearningPoint> = emptyList(),
+    val read_units: List<ReadUnit> = emptyList(),
+    val uncertainty: Uncertainty = Uncertainty()
+)
+```
+
+新增模型：
+
+```kotlin
+data class SolutionStep(
+    val block_id: String = "",
+    val number: String = "",
+    val title: String = "",
+    val content_zh: String = "",
+    val formula: String? = null,
+    val result: String? = null
+)
+
+data class LearningPoint(
+    val block_id: String? = null,
+    val term: String = "",
+    val explanation_zh: String = "",
+    val pronunciation: String? = null,
+    val category: String = "other"
+)
+
+data class ReadUnit(
+    val block_id: String? = null,
+    val unit_type: String = "sentence",
+    val text: String = "",
+    val meaning_zh: String? = null
+)
+```
 
 ## question_instruction 展示规则
 
@@ -86,14 +203,14 @@ GET /v1/homework/tasks/{task_id}
 
 字段：
 
-- `text`：图片中的英文题目要求原句。
-- `meaning_zh`：英文题目要求的中文解释。
+- `text`：图片中的题目要求原文。
+- `meaning_zh`：题目要求的中文解释。
 - `confidence`：后端识别置信度。
 
 展示：
 
 - 当 `text` 或 `meaning_zh` 非空时，结果页展示独立的“题目要求”卡片。
-- 英文原句可点击 / 按钮朗读，使用本地 `TextToSpeech`。
+- 题目要求原文可点击 / 按钮朗读，使用本地 `TextToSpeech`。
 - 中文解释直接展示给家长理解题目要求。
 - 若该字段为空，不影响参考答案区渲染。
 
@@ -141,14 +258,17 @@ I am a student.
 - [x] 任务列表页
 - [x] 底部导航栏
 - [x] 结果数据持久化
-- [x] 数据模型升级为 JSON v2
+- [x] 数据模型升级为 JSON v3
 - [x] 展示 `question_instruction` 题目要求原句、中文解释和朗读按钮
 - [x] 使用 `question_blocks` 将同一图片中的多个题目块分组展示
 - [x] 参考答案区改为 `answer_lines` 渲染
 - [x] 支持 `given` / `answer` / `connector` / `correction` 分段配色
 - [x] 调整 TTS 逻辑，整行朗读使用 `plain_text`
 - [x] 重新解题时提交 `force=true`，触发后端强制重新解析
-- [x] 单词缺少释义时仍弹窗提示“暂无释义，点击可发音”
+- [x] 单词缺少释义时仍弹窗提示“暂无解释，点击可朗读”
+- [x] 多学科选择：通用 / 英语 / 文科 / 理科
+- [x] 任务持久化保存 `subject`
+- [x] 展示 `solution_steps` / `learning_points` / `read_units`
 
 ## 构建与测试
 

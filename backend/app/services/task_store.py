@@ -17,7 +17,7 @@ TIMEOUT_ERROR_MESSAGE = "Task timed out before completion."
 
 _ACTIVE_STATUSES = {TaskStatus.PENDING, TaskStatus.PROCESSING}
 _TERMINAL_STATUSES = {TaskStatus.COMPLETED, TaskStatus.FAILED}
-TASK_RESULT_SCHEMA_VERSION = 3
+TASK_RESULT_SCHEMA_VERSION = 4
 
 
 class TaskStore:
@@ -49,6 +49,7 @@ class TaskStore:
                 "status": task.status.value,
                 "image_hash": task.image_hash,
                 "model": task.model,
+                "subject": task.subject,
                 "created_at": task.created_at,
                 "updated_at": task.updated_at,
                 "result": task.result.model_dump() if task.result else None,
@@ -100,6 +101,7 @@ class TaskStore:
                 status=status,
                 image_hash=data["image_hash"],
                 model=data["model"],
+                subject=data.get("subject", "general"),
                 created_at=data["created_at"],
                 updated_at=updated_at,
                 result=result,
@@ -112,7 +114,9 @@ class TaskStore:
             logger.error("failed_to_load_task_from_disk task_id=%s: %s", task_id, e)
             return None
 
-    async def create(self, image_hash: str, model: str, force: bool = False) -> Task:
+    async def create(
+        self, image_hash: str, model: str, subject: str = "general", force: bool = False
+    ) -> Task:
         """Create a new pending task or reuse an existing task unless force is True."""
         now = time.time()
         task_id = image_hash
@@ -140,6 +144,7 @@ class TaskStore:
                 status=TaskStatus.PENDING,
                 image_hash=image_hash,
                 model=model,
+                subject=subject,
                 created_at=now,
                 updated_at=now,
             )
@@ -149,9 +154,10 @@ class TaskStore:
                 logger.info("task_force_recreated task_id=%s", task_id)
 
         logger.info(
-            "task_created task_id=%s image_hash=%s model=%s",
+            "task_created task_id=%s image_hash=%s subject=%s model=%s",
             task.task_id,
             image_hash,
+            subject,
             model or "<default>",
         )
         return task

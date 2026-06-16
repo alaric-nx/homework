@@ -1,40 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "HomeworkParseResponseV2",
+  "title": "HomeworkParseResponseV3",
   "type": "object",
   "additionalProperties": false,
   "required": [
+    "subject",
     "question_meaning_zh",
     "question_instruction",
     "question_blocks",
     "answer_lines",
+    "solution_steps",
     "explanation_zh",
-    "key_vocabulary",
-    "speak_units",
+    "learning_points",
+    "read_units",
     "uncertainty"
   ],
   "properties": {
+    "subject": {
+      "type": "string",
+      "enum": ["general", "english", "liberal_arts", "science"]
+    },
     "question_meaning_zh": {
       "type": "string",
       "minLength": 1
     },
     "question_instruction": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["text", "meaning_zh", "confidence"],
-      "properties": {
-        "text": {
-          "type": "string"
-        },
-        "meaning_zh": {
-          "type": "string"
-        },
-        "confidence": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
-        }
-      }
+      "$ref": "#/$defs/question_instruction"
     },
     "question_blocks": {
       "type": "array",
@@ -58,22 +49,7 @@
             "minLength": 1
           },
           "question_instruction": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["text", "meaning_zh", "confidence"],
-            "properties": {
-              "text": {
-                "type": "string"
-              },
-              "meaning_zh": {
-                "type": "string"
-              },
-              "confidence": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 1
-              }
-            }
+            "$ref": "#/$defs/question_instruction"
           },
           "question_meaning_zh": {
             "type": "string",
@@ -109,6 +85,11 @@
               "translation",
               "correction",
               "copying",
+              "calculation",
+              "proof",
+              "short_answer",
+              "composition",
+              "pinyin",
               "other"
             ]
           },
@@ -138,41 +119,83 @@
         }
       }
     },
-    "explanation_zh": {
-      "type": "string",
-      "minLength": 1
-    },
-    "key_vocabulary": {
+    "solution_steps": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["word", "meaning_zh"],
+        "required": ["block_id", "number", "title", "content_zh", "formula", "result"],
         "properties": {
-          "word": {
+          "block_id": {
             "type": "string",
             "minLength": 1
           },
-          "meaning_zh": {
+          "number": {
             "type": "string",
             "minLength": 1
           },
-          "ipa": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "content_zh": {
+            "type": "string",
+            "minLength": 1
+          },
+          "formula": {
+            "type": ["string", "null"]
+          },
+          "result": {
             "type": ["string", "null"]
           }
         }
       }
     },
-    "speak_units": {
+    "explanation_zh": {
+      "type": "string",
+      "minLength": 1
+    },
+    "learning_points": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["unit_type", "text"],
+        "required": ["block_id", "term", "explanation_zh", "pronunciation", "category"],
         "properties": {
+          "block_id": {
+            "type": ["string", "null"]
+          },
+          "term": {
+            "type": "string",
+            "minLength": 1
+          },
+          "explanation_zh": {
+            "type": "string",
+            "minLength": 1
+          },
+          "pronunciation": {
+            "type": ["string", "null"]
+          },
+          "category": {
+            "type": "string",
+            "enum": ["word", "pinyin", "concept", "formula", "unit", "method", "other"]
+          }
+        }
+      }
+    },
+    "read_units": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["block_id", "unit_type", "text", "meaning_zh"],
+        "properties": {
+          "block_id": {
+            "type": ["string", "null"]
+          },
           "unit_type": {
             "type": "string",
-            "enum": ["word", "sentence"]
+            "enum": ["word", "sentence", "paragraph", "answer", "explanation"]
           },
           "text": {
             "type": "string",
@@ -187,7 +210,7 @@
     "uncertainty": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["requires_review", "confidence"],
+      "required": ["requires_review", "confidence", "reason"],
       "properties": {
         "requires_review": {
           "type": "boolean"
@@ -199,6 +222,26 @@
         },
         "reason": {
           "type": ["string", "null"]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "question_instruction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "meaning_zh", "confidence"],
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "meaning_zh": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         }
       }
     }

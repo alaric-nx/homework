@@ -46,7 +46,7 @@ class TaskRepository(context: Context) {
                 val md5 = getFileMd5(imageFile)
                 if (md5.isNotBlank()) {
                     kotlin.runCatching {
-                        HomeworkApi().deleteTask(md5)
+                        HomeworkApi().deleteTask("${task.subject}:$md5")
                     }
                 }
             }
@@ -63,7 +63,7 @@ class TaskRepository(context: Context) {
             val md5 = getFileMd5(imageFile)
             if (md5.isNotBlank()) {
                 kotlin.runCatching {
-                    HomeworkApi().deleteTask(md5)
+                    HomeworkApi().deleteTask("${task.subject}:$md5")
                 }
             }
         }

@@ -11,6 +11,7 @@ interface TaskDao {
         """
         SELECT
             id,
+            subject,
             status,
             thumbnailPath,
             imagePath,

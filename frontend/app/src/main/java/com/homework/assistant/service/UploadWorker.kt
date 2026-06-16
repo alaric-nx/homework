@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.work.*
 import com.google.gson.Gson
 import com.homework.assistant.data.local.SettingsStore
+import com.homework.assistant.data.model.normalizeSubject
 import com.homework.assistant.data.remote.HomeworkApi
 import com.homework.assistant.data.remote.HttpStatusException
 import kotlinx.coroutines.delay
@@ -15,7 +16,7 @@ import java.util.concurrent.TimeUnit
  * WorkManager Worker：后台执行题图上传与解析（异步提交 + 轮询模式）
  *
  * 流程：
- *  1. submitParse(imageFile, model) → 获得后端 task_id
+ *  1. submitParse(imageFile, model, subject) → 获得后端 task_id
  *  2. 轮询 pollTask(backendTaskId)，间隔 2s，最多 35 次（≈70s）
  *  3. 根据 status 判断 completed / failed / timeout
  *
@@ -89,7 +90,8 @@ class UploadWorker(
 
         // 1) 提交解析请求，获得后端 task_id
         val model = settings.modelName
-        val submitResult = api.submitParse(imageFile, model, force = force)
+        val subject = normalizeSubject(task.subject)
+        val submitResult = api.submitParse(imageFile, model, subject = subject, force = force)
         val backendTaskId = submitResult.fold(
             onSuccess = { it.taskId },
             onFailure = { e ->
@@ -103,7 +105,7 @@ class UploadWorker(
             Log.e(TAG, "Task $taskId submit returned blank backend task_id")
             return handleSubmitFailure(taskId, "提交返回的任务 ID 为空")
         }
-        Log.d(TAG, "Task $taskId submitted, backendTaskId=$backendTaskId")
+        Log.d(TAG, "Task $taskId submitted, backendTaskId=$backendTaskId subject=$subject")
 
         // 2) 轮询后端任务状态
         return pollLoop(taskId, backendTaskId)
@@ -128,10 +130,11 @@ class UploadWorker(
                             val parseResult = status.result
                             if (
                                 parseResult == null ||
+                                parseResult.subject.isBlank() ||
                                 parseResult.question_blocks.isEmpty() ||
                                 parseResult.answer_lines.isEmpty()
                             ) {
-                                val msg = "后端返回缺少 question_blocks 或 answer_lines，请检查后端是否已部署当前 JSON 契约。"
+                                val msg = "后端返回缺少 subject、question_blocks 或 answer_lines，请检查后端是否已部署当前 JSON v3 契约。"
                                 Log.e(TAG, "Task $localTaskId invalid result: $msg")
                                 markFailed(localTaskId, msg)
                                 return Result.failure()

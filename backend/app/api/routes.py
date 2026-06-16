@@ -33,11 +33,12 @@ async def _run_parse_task(
     task_id: str,
     image_bytes: bytes,
     model: str | None,
+    subject: str,
 ) -> None:
     """Background coroutine that runs the parse pipeline and updates task state."""
     await task_store.update_status(task_id, TaskStatus.PROCESSING)
     try:
-        result = await pipeline.run(image_bytes=image_bytes, model=model)
+        result = await pipeline.run(image_bytes=image_bytes, model=model, subject=subject)
         await task_store.update_status(
             task_id, TaskStatus.COMPLETED, result=result
         )
@@ -75,6 +76,7 @@ async def submit_parse(
     request: Request,
     model: str | None = Query(default=None),
     force: bool = Query(default=False),
+    subject: str = Query(default="general"),
 ) -> ParseSubmitResponse:
     content_type = (request.headers.get("content-type") or "").lower()
     body = await request.body()
@@ -91,7 +93,19 @@ async def submit_parse(
 
     image_hash = hashlib.md5(body).hexdigest()
     model_value = (model or "").strip()
-    task = await task_store.create(image_hash=image_hash, model=model_value, force=force)
+    subject_value = (subject or "general").strip()
+    if subject_value not in {"general", "english", "liberal_arts", "science"}:
+        raise AppError(
+            "INVALID_REQUEST",
+            "subject must be one of general, english, liberal_arts, science.",
+        )
+    cache_hash = f"{subject_value}:{image_hash}"
+    task = await task_store.create(
+        image_hash=cache_hash,
+        model=model_value,
+        subject=subject_value,
+        force=force,
+    )
 
     # 只有当任务是新创建的 PENDING 状态时，才触发异步解析任务
     if task.status == TaskStatus.PENDING:
@@ -102,13 +116,15 @@ async def submit_parse(
                 task_id=task.task_id,
                 image_bytes=body,
                 model=model_value or None,
+                subject=subject_value,
             )
         )
 
     logger.info(
-        "parse_submitted task_id=%s image_hash=%s status=%s model=%s size=%s force=%s",
+        "parse_submitted task_id=%s image_hash=%s subject=%s status=%s model=%s size=%s force=%s",
         task.task_id,
-        image_hash,
+        cache_hash,
+        subject_value,
         task.status.value,
         model_value or "<default>",
         len(body),
@@ -121,7 +137,8 @@ async def submit_parse(
     return ParseSubmitResponse(
         task_id=task.task_id,
         status=task.status.value,
-        image_hash=image_hash,
+        image_hash=cache_hash,
+        subject=task.subject,
         result=response_result,
     )
 
@@ -146,6 +163,7 @@ async def get_task(
         status=task.status.value,
         image_hash=task.image_hash,
         model=task.model or "default",
+        subject=task.subject,
         result=task.result,
         error_code=task.error_code,
         error_message=task.error_message,

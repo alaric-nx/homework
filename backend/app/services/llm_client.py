@@ -451,13 +451,15 @@ class LLMClient:
 
     def _extract_candidate_payload(self, value: Any) -> dict[str, Any] | None:
         required = {
+            "subject",
             "question_meaning_zh",
             "question_instruction",
             "question_blocks",
             "answer_lines",
+            "solution_steps",
             "explanation_zh",
-            "key_vocabulary",
-            "speak_units",
+            "learning_points",
+            "read_units",
             "uncertainty",
         }
 

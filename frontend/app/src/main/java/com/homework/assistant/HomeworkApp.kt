@@ -16,6 +16,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.homework.assistant.data.local.TaskEntity
+import com.homework.assistant.data.model.normalizeSubject
 import com.homework.assistant.service.UploadWorker
 import com.homework.assistant.ui.capture.CaptureScreen
 import com.homework.assistant.ui.crop.CropScreen
@@ -49,8 +50,9 @@ fun HomeworkApp() {
     val cropSegments = remember { mutableStateListOf<Uri>() }
     val originalUris = remember { mutableStateListOf<Uri>() }
     val cropTargetIndex = remember { mutableIntStateOf(-1) }
+    var selectedSubject by remember { mutableStateOf("general") }
 
-    suspend fun createTaskFromBitmap(bitmap: Bitmap): String {
+    suspend fun createTaskFromBitmap(bitmap: Bitmap, subject: String): String {
         val (imagePath, thumbPath) = withContext(Dispatchers.IO) {
             val now = System.currentTimeMillis()
             val imgFile = ImageUtils.compressForUpload(
@@ -66,6 +68,7 @@ fun HomeworkApp() {
         val taskId = UUID.randomUUID().toString()
         val task = TaskEntity(
             id = taskId,
+            subject = normalizeSubject(subject),
             status = "PENDING",
             thumbnailPath = thumbPath,
             imagePath = imagePath
@@ -91,14 +94,14 @@ fun HomeworkApp() {
         }
     }
 
-    fun submitBatchImages(uris: List<Uri>) {
+    fun submitBatchImages(uris: List<Uri>, subject: String) {
         if (uris.isEmpty()) return
         scope.launch {
             val bitmaps = withContext(Dispatchers.IO) {
                 uris.mapNotNull { uri -> ImageUtils.loadBitmap(context, uri) }
             }
             bitmaps.forEach { bitmap ->
-                createTaskFromBitmap(bitmap)
+                createTaskFromBitmap(bitmap, subject)
             }
             clearAll()
             navigateToTab("taskList")
@@ -137,6 +140,8 @@ fun HomeworkApp() {
         ) {
             composable("capture") {
                 CaptureScreen(
+                    selectedSubject = selectedSubject,
+                    onSubjectSelected = { selectedSubject = normalizeSubject(it) },
                     onImageSelected = { uri ->
                         cropSegments.add(uri)
                         originalUris.add(uri)
@@ -152,7 +157,7 @@ fun HomeworkApp() {
                         }
                     },
                     onBatchImagesSelected = { uris ->
-                        submitBatchImages(uris)
+                        submitBatchImages(uris, selectedSubject)
                     }
                 )
             }
@@ -217,7 +222,7 @@ fun HomeworkApp() {
                     },
                     onSubmitTask = { bitmap ->
                         scope.launch {
-                            createTaskFromBitmap(bitmap)
+                            createTaskFromBitmap(bitmap, selectedSubject)
                             clearAll()
                             navigateToTab("taskList")
                         }

@@ -9,13 +9,15 @@ from app.core.models import HomeworkParseResult
 
 # 固定输出仅包含以下字段，answer_lines 是参考答案区唯一数据源。
 ALLOWED_FIELDS = (
+    "subject",
     "question_meaning_zh",
     "question_instruction",
     "question_blocks",
     "answer_lines",
+    "solution_steps",
     "explanation_zh",
-    "key_vocabulary",
-    "speak_units",
+    "learning_points",
+    "read_units",
     "uncertainty",
 )
 
@@ -55,5 +57,23 @@ class ResponseSchemaGuard:
                 raise AppError(
                     "SCHEMA_VALIDATION_FAILED",
                     f"answer line block_id {line.block_id!r} not found in question_blocks",
+                )
+        for step in result.solution_steps:
+            if step.block_id not in block_ids:
+                raise AppError(
+                    "SCHEMA_VALIDATION_FAILED",
+                    f"solution step block_id {step.block_id!r} not found in question_blocks",
+                )
+        for item in result.learning_points:
+            if item.block_id is not None and item.block_id not in block_ids:
+                raise AppError(
+                    "SCHEMA_VALIDATION_FAILED",
+                    f"learning point block_id {item.block_id!r} not found in question_blocks",
+                )
+        for unit in result.read_units:
+            if unit.block_id is not None and unit.block_id not in block_ids:
+                raise AppError(
+                    "SCHEMA_VALIDATION_FAILED",
+                    f"read unit block_id {unit.block_id!r} not found in question_blocks",
                 )
         return result

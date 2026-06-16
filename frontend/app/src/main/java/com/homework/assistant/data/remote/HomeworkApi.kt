@@ -26,7 +26,7 @@ class HttpStatusException(val code: Int, message: String) : IOException(message)
 
 /**
  * 后端 API 客户端（异步提交 + 轮询模式）
- * - POST /v1/homework/parse?model=xxx  Content-Type: image/jpeg，body 为图片二进制 → 202 SubmitResponse
+ * - POST /v1/homework/parse?subject=xxx&model=xxx  Content-Type: image/jpeg，body 为图片二进制 → 202 SubmitResponse
  * - GET  /v1/homework/tasks/{task_id}  → 200 TaskStatusResponse / 404 TASK_NOT_FOUND
  */
 class HomeworkApi(
@@ -58,15 +58,23 @@ class HomeworkApi(
      * 异步提交解析请求：上传题图二进制，立即返回 task_id。
      * @param imageFile 合并压缩后的题图（JPEG）
      * @param model     指定模型名称，可为空字符串（为空时省略 model query 参数，由后端使用默认模型）
+     * @param subject   学科分类：general / english / liberal_arts / science
      * @param force     是否强制重新解析（跳过缓存直接算）
      */
-    suspend fun submitParse(imageFile: File, model: String, force: Boolean = false): Result<SubmitResponse> =
+    suspend fun submitParse(
+        imageFile: File,
+        model: String,
+        subject: String,
+        force: Boolean = false
+    ): Result<SubmitResponse> =
         withContext(Dispatchers.IO) {
             try {
                 val body = imageFile.asRequestBody("image/jpeg".toMediaType())
 
                 val urlBuilder = StringBuilder("$baseUrl/v1/homework/parse")
-                val queryParams = mutableListOf<String>()
+                val queryParams = mutableListOf(
+                    "subject=${URLEncoder.encode(subject, "UTF-8")}"
+                )
                 if (model.isNotBlank()) {
                     queryParams.add("model=${URLEncoder.encode(model, "UTF-8")}")
                 }

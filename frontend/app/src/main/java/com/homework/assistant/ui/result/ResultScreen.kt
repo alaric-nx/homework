@@ -68,10 +68,12 @@ import com.google.gson.Gson
 import com.homework.assistant.HomeworkApplication
 import com.homework.assistant.R
 import com.homework.assistant.data.model.AnswerLine as ResultAnswerLine
+import com.homework.assistant.data.model.LearningPoint
 import com.homework.assistant.data.model.ParseResult
 import com.homework.assistant.data.model.QuestionBlock
-import com.homework.assistant.data.model.SpeakUnit
-import com.homework.assistant.data.model.VocabularyItem
+import com.homework.assistant.data.model.ReadUnit
+import com.homework.assistant.data.model.SolutionStep
+import com.homework.assistant.data.model.subjectLabel
 import java.util.Locale
 
 private val fallbackAnswerLinePattern = Regex("""^(\d+)[\.)]?\s+(.+)$""")
@@ -167,12 +169,12 @@ fun ResultScreen(
     }
     val vocabLookup = remember(result) {
         buildVocabularyLookup(
-            items = result?.key_vocabulary.orEmpty(),
-            units = result?.speak_units.orEmpty()
+            items = result?.learning_points.orEmpty(),
+            units = result?.read_units.orEmpty()
         )
     }
     val sentenceTranslationLookup = remember(result) {
-        buildSentenceTranslationLookup(result?.speak_units.orEmpty())
+        buildSentenceTranslationLookup(result?.read_units.orEmpty())
     }
     val originalBitmap = remember(originalImagePath) {
         originalImagePath?.let { path ->
@@ -262,6 +264,7 @@ fun ResultScreen(
                     item {
                         QuestionRequirementCard(
                             title = stringResource(R.string.question_requirement),
+                            subject = r.subject,
                             text = r.question_instruction.text,
                             meaningZh = r.question_instruction.meaning_zh,
                             onSpeak = {
@@ -306,7 +309,25 @@ fun ResultScreen(
                             SectionCard(stringResource(R.string.reference_answer), "暂无参考答案")
                         }
                     }
+                    if (r.solution_steps.isNotEmpty()) {
+                        item { SolutionStepsCard(r.solution_steps) }
+                    }
                     item { SectionCard(stringResource(R.string.explanation), r.explanation_zh) }
+                    if (r.learning_points.isNotEmpty()) {
+                        item { LearningPointsCard(r.learning_points) }
+                    }
+                    if (r.read_units.isNotEmpty()) {
+                        item {
+                            ReadUnitsCard(
+                                units = r.read_units,
+                                onSpeak = {
+                                    activeTip = null
+                                    activeSentenceTip = null
+                                    ttsManager.speak(it)
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -316,7 +337,7 @@ fun ResultScreen(
 @Composable
 private fun QuestionBlockAnswerCard(
     block: DisplayQuestionBlock,
-    vocabLookup: Map<String, VocabularyItem>,
+    vocabLookup: Map<String, LearningPoint>,
     sentenceTranslationLookup: Map<String, String>,
     activeTip: WordTipTarget?,
     activeSentenceTip: SentenceTipTarget?,
@@ -495,14 +516,262 @@ private fun SectionCard(title: String, content: String) {
 }
 
 @Composable
+private fun SubjectPill(subject: String) {
+    Surface(
+        shape = TokenShape,
+        color = SoftPrimarySurface,
+        contentColor = Color(0xFF15528C),
+        border = BorderStroke(1.dp, Color(0xFFC7DCF5))
+    ) {
+        Text(
+            text = subjectLabel(subject),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun SolutionStepsCard(steps: List<SolutionStep>) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = ResultCardShape,
+        colors = CardDefaults.cardColors(containerColor = CardSurface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(1.dp, CardBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                stringResource(R.string.solution_steps),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF174A7C)
+            )
+            steps.forEachIndexed { index, step ->
+                if (index > 0) {
+                    HorizontalDivider(color = Color(0xFFE9EDF3))
+                }
+                SolutionStepRow(step)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SolutionStepRow(step: SolutionStep) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Surface(
+            shape = TokenShape,
+            color = SoftNeutralSurface,
+            contentColor = Color(0xFF475467),
+            border = BorderStroke(1.dp, Color(0xFFE3E6EA))
+        ) {
+            Text(
+                text = step.number.ifBlank { "•" },
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                step.title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = InkText
+            )
+            Text(
+                step.content_zh,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFF475467)
+            )
+            step.formula?.trim()?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF15528C)
+                )
+            }
+            step.result?.trim()?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    "结果：$it",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFFD32F2F)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LearningPointsCard(points: List<LearningPoint>) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = ResultCardShape,
+        colors = CardDefaults.cardColors(containerColor = CardSurface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(1.dp, CardBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                stringResource(R.string.learning_points),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF174A7C)
+            )
+            points.forEachIndexed { index, point ->
+                if (index > 0) {
+                    HorizontalDivider(color = Color(0xFFE9EDF3))
+                }
+                LearningPointRow(point)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LearningPointRow(point: LearningPoint) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                point.term,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = InkText
+            )
+            point.pronunciation?.trim()?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF667085)
+                )
+            }
+            LearningPointCategoryPill(point.category)
+        }
+        Text(
+            point.explanation_zh,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color(0xFF475467)
+        )
+    }
+}
+
+@Composable
+private fun LearningPointCategoryPill(category: String) {
+    Surface(
+        shape = TokenShape,
+        color = SoftAccentSurface,
+        contentColor = Color(0xFF22603A)
+    ) {
+        Text(
+            text = learningPointCategoryLabel(category),
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall
+        )
+    }
+}
+
+@Composable
+private fun ReadUnitsCard(
+    units: List<ReadUnit>,
+    onSpeak: (String) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = ResultCardShape,
+        colors = CardDefaults.cardColors(containerColor = CardSurface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(1.dp, CardBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                stringResource(R.string.read_units),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF174A7C)
+            )
+            units.forEachIndexed { index, unit ->
+                if (index > 0) {
+                    HorizontalDivider(color = Color(0xFFE9EDF3))
+                }
+                ReadUnitRow(unit, onSpeak)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReadUnitRow(
+    unit: ReadUnit,
+    onSpeak: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(
+                unit.text,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = InkText
+            )
+            unit.meaning_zh?.trim()?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF475467)
+                )
+            }
+        }
+        IconButton(
+            onClick = { onSpeak(unit.text) },
+            enabled = unit.text.isNotBlank()
+        ) {
+            Icon(
+                Icons.Default.VolumeUp,
+                contentDescription = stringResource(R.string.pronunciation_voice),
+                tint = Color(0xFF1565C0)
+            )
+        }
+    }
+}
+
+@Composable
 private fun QuestionRequirementCard(
     title: String,
+    subject: String,
     text: String,
     meaningZh: String,
     onSpeak: (String) -> Unit
 ) {
     val instructionText = text.trim()
-    val displayText = instructionText.ifBlank { "未识别到英文题目要求" }
+    val displayText = instructionText.ifBlank { "未识别到题目要求" }
     val displayMeaning = meaningZh.trim().ifBlank { "暂无中文解释" }
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -517,12 +786,18 @@ private fun QuestionRequirementCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top
             ) {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF174A7C)
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF174A7C)
+                    )
+                    SubjectPill(subject)
+                }
                 IconButton(
                     onClick = {
                         if (instructionText.isNotBlank()) {
@@ -556,54 +831,9 @@ private fun QuestionRequirementCard(
 }
 
 @Composable
-private fun AnswerPronunciationCard(
-    title: String,
-    lines: List<DisplayAnswerLine>,
-    vocabLookup: Map<String, VocabularyItem>,
-    sentenceTranslationLookup: Map<String, String>,
-    activeTip: WordTipTarget?,
-    activeSentenceTip: SentenceTipTarget?,
-    onTipChange: (WordTipTarget?) -> Unit,
-    onSentenceTipChange: (SentenceTipTarget?) -> Unit,
-    onSpeakLine: (String) -> Unit,
-    onSpeakWord: (String) -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = ResultCardShape,
-        colors = CardDefaults.cardColors(containerColor = CardSurface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        border = BorderStroke(1.dp, CardBorder)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF174A7C)
-            )
-            AnswerPronunciationContent(
-                lines = lines,
-                vocabLookup = vocabLookup,
-                sentenceTranslationLookup = sentenceTranslationLookup,
-                activeTip = activeTip,
-                activeSentenceTip = activeSentenceTip,
-                onTipChange = onTipChange,
-                onSentenceTipChange = onSentenceTipChange,
-                onSpeakLine = onSpeakLine,
-                onSpeakWord = onSpeakWord
-            )
-        }
-    }
-}
-
-@Composable
 private fun AnswerPronunciationContent(
     lines: List<DisplayAnswerLine>,
-    vocabLookup: Map<String, VocabularyItem>,
+    vocabLookup: Map<String, LearningPoint>,
     sentenceTranslationLookup: Map<String, String>,
     activeTip: WordTipTarget?,
     activeSentenceTip: SentenceTipTarget?,
@@ -643,7 +873,7 @@ private fun SpeakableLineRow(
     lineType: String,
     text: String,
     segments: List<DisplayAnswerSegment>,
-    vocabLookup: Map<String, VocabularyItem>,
+    vocabLookup: Map<String, LearningPoint>,
     translation: String?,
     activeTip: WordTipTarget?,
     activeSentenceTip: SentenceTipTarget?,
@@ -746,7 +976,7 @@ private fun AtomicAnswerLine(
     lineId: String,
     text: String,
     segments: List<DisplayAnswerSegment>,
-    vocabLookup: Map<String, VocabularyItem>,
+    vocabLookup: Map<String, LearningPoint>,
     activeTip: WordTipTarget?,
     onTipChange: (WordTipTarget?) -> Unit,
     onSpeakWord: (String) -> Unit,
@@ -1180,6 +1410,18 @@ private fun answerSegmentColor(role: String): Color {
     }
 }
 
+private fun learningPointCategoryLabel(category: String): String {
+    return when (category.lowercase(Locale.US)) {
+        "word" -> "单词"
+        "pinyin" -> "拼音"
+        "concept" -> "概念"
+        "formula" -> "公式"
+        "unit" -> "单位"
+        "method" -> "方法"
+        else -> "知识点"
+    }
+}
+
 private fun normalizeWord(raw: String): String {
     val lower = raw.trim().lowercase(Locale.US)
     return stripWordPattern.replace(lower, "")
@@ -1190,34 +1432,34 @@ private fun normalizeSentence(raw: String): String {
 }
 
 private fun buildVocabularyLookup(
-    items: List<VocabularyItem>,
-    units: List<SpeakUnit>
-): Map<String, VocabularyItem> {
-    val lookup = linkedMapOf<String, VocabularyItem>()
+    items: List<LearningPoint>,
+    units: List<ReadUnit>
+): Map<String, LearningPoint> {
+    val lookup = linkedMapOf<String, LearningPoint>()
     items.forEach { item ->
-        val key = normalizeWord(item.word)
+        val key = normalizeWord(item.term)
         if (key.isNotEmpty()) {
             lookup[key] = item
         }
     }
-    units.filter { it.type == "word" }.forEach { unit ->
+    units.filter { it.unit_type == "word" }.forEach { unit ->
         val meaning = unit.meaning_zh?.trim()
         if (meaning.isNullOrBlank()) return@forEach
         val key = normalizeWord(unit.text)
         if (key.isNotEmpty() && lookup[key] == null) {
-            lookup[key] = VocabularyItem(
-                word = unit.text,
-                meaning_zh = meaning,
-                ipa = ""
+            lookup[key] = LearningPoint(
+                term = unit.text,
+                explanation_zh = meaning,
+                category = "word"
             )
         }
     }
     return lookup
 }
 
-private fun buildSentenceTranslationLookup(units: List<SpeakUnit>): Map<String, String> {
+private fun buildSentenceTranslationLookup(units: List<ReadUnit>): Map<String, String> {
     val lookup = linkedMapOf<String, String>()
-    units.filter { it.type == "sentence" }.forEach { unit ->
+    units.filter { it.unit_type in setOf("sentence", "answer", "paragraph", "explanation") }.forEach { unit ->
         val translation = unit.meaning_zh?.trim()
         if (translation.isNullOrBlank()) return@forEach
         val key = normalizeSentence(unit.text)
@@ -1249,26 +1491,26 @@ private fun findSentenceTranslation(
 private fun buildTipTarget(
     id: String,
     rawWord: String,
-    vocabLookup: Map<String, VocabularyItem>
+    vocabLookup: Map<String, LearningPoint>
 ): WordTipTarget? {
     val normalized = normalizeWord(rawWord)
     if (normalized.isEmpty()) return null
 
     val vocab = lookupVocabulary(normalized, vocabLookup)
-    val meaning = vocab?.meaning_zh?.takeIf { it.isNotBlank() }
-        ?: "暂无释义，点击可发音"
+    val meaning = vocab?.explanation_zh?.takeIf { it.isNotBlank() }
+        ?: "暂无解释，点击可朗读"
     return WordTipTarget(
         id = id,
         word = rawWord,
-        ipa = vocab?.ipa?.takeIf { it.isNotBlank() },
+        ipa = vocab?.pronunciation?.takeIf { it.isNotBlank() },
         meaning = meaning
     )
 }
 
 private fun lookupVocabulary(
     normalizedWord: String,
-    vocabLookup: Map<String, VocabularyItem>
-): VocabularyItem? {
+    vocabLookup: Map<String, LearningPoint>
+): LearningPoint? {
     if (normalizedWord.isBlank()) return null
     val candidates = buildList {
         add(normalizedWord)

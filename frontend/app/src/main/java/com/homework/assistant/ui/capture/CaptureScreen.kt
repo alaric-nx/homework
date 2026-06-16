@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Collections
@@ -19,6 +20,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.homework.assistant.HomeworkApplication
 import com.homework.assistant.R
+import com.homework.assistant.data.model.HomeworkSubjects
+import com.homework.assistant.data.model.normalizeSubject
 import java.io.File
 
 /**
@@ -28,6 +31,8 @@ import java.io.File
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CaptureScreen(
+    selectedSubject: String,
+    onSubjectSelected: (String) -> Unit,
     onImageSelected: (Uri) -> Unit,
     onMultipleImagesSelected: (List<Uri>) -> Unit,
     onBatchImagesSelected: (List<Uri>) -> Unit
@@ -90,6 +95,13 @@ fun CaptureScreen(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            SubjectSelector(
+                selectedSubject = normalizeSubject(selectedSubject),
+                onSubjectSelected = onSubjectSelected
+            )
+
+            Spacer(modifier = Modifier.height(22.dp))
+
             CaptureActionButton(
                 title = "拍照解析",
                 subtitle = "单张题图",
@@ -115,6 +127,40 @@ fun CaptureScreen(
                 icon = Icons.Default.GridView,
                 onClick = { batchGalleryLauncher.launch("image/*") }
             )
+        }
+    }
+}
+
+@Composable
+private fun SubjectSelector(
+    selectedSubject: String,
+    onSubjectSelected: (String) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            "学科",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            HomeworkSubjects.forEach { subject ->
+                val selected = subject.code == selectedSubject
+                FilterChip(
+                    selected = selected,
+                    onClick = { onSubjectSelected(subject.code) },
+                    label = { Text(subject.label) },
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f),
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                )
+            }
         }
     }
 }

@@ -8,6 +8,7 @@ from app.skills.common.response_schema_guard import ResponseSchemaGuard
 
 def _valid_payload() -> dict:
     return {
+        "subject": "english",
         "question_meaning_zh": "补全句子。\n把空格补成完整句子。",
         "question_instruction": {
             "text": "Complete the sentence.",
@@ -39,28 +40,31 @@ def _valid_payload() -> dict:
                 ],
             }
         ],
+        "solution_steps": [],
         "explanation_zh": "I 后面的 be 动词用 am。",
-        "key_vocabulary": [
-            {"word": "I", "meaning_zh": "我", "ipa": "/aɪ/"},
-            {"word": "am", "meaning_zh": "是", "ipa": "/æm/"},
-            {"word": "student", "meaning_zh": "学生", "ipa": "/ˈstuːdnt/"}
+        "learning_points": [
+            {"block_id": "q1", "term": "I", "explanation_zh": "我", "pronunciation": "/aɪ/", "category": "word"},
+            {"block_id": "q1", "term": "am", "explanation_zh": "是", "pronunciation": "/æm/", "category": "word"},
+            {"block_id": "q1", "term": "student", "explanation_zh": "学生", "pronunciation": "/ˈstuːdnt/", "category": "word"}
         ],
-        "speak_units": [
+        "read_units": [
             {
+                "block_id": None,
                 "unit_type": "sentence",
                 "text": "把空格补成完整句子。",
                 "meaning_zh": "把空格补成完整句子。",
             },
             {
+                "block_id": "q1",
                 "unit_type": "sentence",
                 "text": "I am a student.",
                 "meaning_zh": "我是一名学生。",
             },
-            {"unit_type": "word", "text": "I", "meaning_zh": "我"},
-            {"unit_type": "word", "text": "am", "meaning_zh": "是"},
-            {"unit_type": "word", "text": "student", "meaning_zh": "学生"},
+            {"block_id": "q1", "unit_type": "word", "text": "I", "meaning_zh": "我"},
+            {"block_id": "q1", "unit_type": "word", "text": "am", "meaning_zh": "是"},
+            {"block_id": "q1", "unit_type": "word", "text": "student", "meaning_zh": "学生"},
         ],
-        "uncertainty": {"requires_review": False, "confidence": 0.95},
+        "uncertainty": {"requires_review": False, "confidence": 0.95, "reason": None},
     }
 
 
@@ -89,6 +93,23 @@ def test_validate_payload_rejects_invalid_segment_role() -> None:
 def test_validate_payload_rejects_unknown_block_id() -> None:
     payload = _valid_payload()
     payload["answer_lines"][0]["block_id"] = "q9"
+
+    with pytest.raises(AppError):
+        ResponseSchemaGuard().validate_payload(payload)
+
+
+def test_validate_payload_rejects_unknown_step_block_id() -> None:
+    payload = _valid_payload()
+    payload["solution_steps"] = [
+        {
+            "block_id": "q9",
+            "number": "1",
+            "title": "步骤",
+            "content_zh": "说明",
+            "formula": None,
+            "result": None,
+        }
+    ]
 
     with pytest.raises(AppError):
         ResponseSchemaGuard().validate_payload(payload)

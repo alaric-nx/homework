@@ -19,7 +19,8 @@ data class SubmitResponse(
     val taskId: String = "",
     val status: String = "",
     @SerializedName("image_hash")
-    val imageHash: String = ""
+    val imageHash: String = "",
+    val subject: String = "general"
 )
 
 /**
@@ -34,6 +35,7 @@ data class TaskStatusResponse(
     @SerializedName("image_hash")
     val imageHash: String = "",
     val model: String = "default",
+    val subject: String = "general",
     val result: ParseResult? = null,
     @SerializedName("error_code")
     val errorCode: String? = null,
@@ -42,16 +44,18 @@ data class TaskStatusResponse(
 )
 
 /**
- * 解析结果 JSON v2（异步接口，移除 answer_placements / filled_image / reference_answer）
+ * 解析结果 JSON v3（异步接口，使用 answer_lines / learning_points / read_units）
  */
 data class ParseResult(
+    val subject: String = "general",
     val question_meaning_zh: String = "",
     val question_instruction: QuestionInstruction = QuestionInstruction(),
     val question_blocks: List<QuestionBlock> = emptyList(),
     val answer_lines: List<AnswerLine> = emptyList(),
+    val solution_steps: List<SolutionStep> = emptyList(),
     val explanation_zh: String = "",
-    val key_vocabulary: List<VocabularyItem> = emptyList(),
-    val speak_units: List<SpeakUnit> = emptyList(),
+    val learning_points: List<LearningPoint> = emptyList(),
+    val read_units: List<ReadUnit> = emptyList(),
     val uncertainty: Uncertainty = Uncertainty()
 )
 
@@ -81,17 +85,29 @@ data class AnswerSegment(
     val role: String = "answer"
 )
 
-data class VocabularyItem(
-    val word: String = "",
-    val ipa: String = "",
-    val meaning_zh: String = ""
+data class SolutionStep(
+    val block_id: String = "",
+    val number: String = "",
+    val title: String = "",
+    val content_zh: String = "",
+    val formula: String? = null,
+    val result: String? = null
 )
 
-data class SpeakUnit(
-    val text: String = "",
-    val meaning_zh: String? = null,
+data class LearningPoint(
+    val block_id: String? = null,
+    val term: String = "",
+    val explanation_zh: String = "",
+    val pronunciation: String? = null,
+    val category: String = "other"
+)
+
+data class ReadUnit(
+    val block_id: String? = null,
     @SerializedName("unit_type")
-    val type: String = "word" // "word" or "sentence"
+    val unit_type: String = "sentence",
+    val text: String = "",
+    val meaning_zh: String? = null
 )
 
 data class Uncertainty(

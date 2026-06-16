@@ -12,9 +12,11 @@ def _task_payload(updated_at: float, schema_version: int = TASK_RESULT_SCHEMA_VE
         "status": "completed",
         "image_hash": "abc",
         "model": "test",
+        "subject": "english",
         "created_at": updated_at,
         "updated_at": updated_at,
         "result": {
+            "subject": "english",
             "question_meaning_zh": "补全句子。\n补全完整句子。",
             "question_instruction": {
                 "text": "Complete the sentence.",
@@ -42,20 +44,22 @@ def _task_payload(updated_at: float, schema_version: int = TASK_RESULT_SCHEMA_VE
                     "segments": [{"text": "I am a student.", "role": "answer"}],
                 }
             ],
+            "solution_steps": [],
             "explanation_zh": "I 后面用 am。",
-            "key_vocabulary": [
-                {"word": "I", "meaning_zh": "我", "ipa": "/aɪ/"},
-                {"word": "am", "meaning_zh": "是", "ipa": "/æm/"},
-                {"word": "student", "meaning_zh": "学生", "ipa": "/ˈstuːdnt/"},
+            "learning_points": [
+                {"block_id": "q1", "term": "I", "explanation_zh": "我", "pronunciation": "/aɪ/", "category": "word"},
+                {"block_id": "q1", "term": "am", "explanation_zh": "是", "pronunciation": "/æm/", "category": "word"},
+                {"block_id": "q1", "term": "student", "explanation_zh": "学生", "pronunciation": "/ˈstuːdnt/", "category": "word"},
             ],
-            "speak_units": [
+            "read_units": [
                 {
+                    "block_id": "q1",
                     "unit_type": "sentence",
                     "text": "I am a student.",
                     "meaning_zh": "我是一名学生。",
                 }
             ],
-            "uncertainty": {"requires_review": False, "confidence": 0.95},
+            "uncertainty": {"requires_review": False, "confidence": 0.95, "reason": None},
         },
         "error_code": None,
         "error_message": None,

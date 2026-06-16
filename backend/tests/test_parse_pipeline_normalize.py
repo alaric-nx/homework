@@ -47,6 +47,7 @@ def test_mark_missing_vocabulary_updates_uncertainty() -> None:
     pipeline = ParsePipeline.__new__(ParsePipeline)
     result = HomeworkParseResult.model_validate(
         {
+            "subject": "english",
             "question_meaning_zh": "补全句子。\n补全完整句子。",
             "question_instruction": {
                 "text": "Complete the sentence.",
@@ -74,18 +75,26 @@ def test_mark_missing_vocabulary_updates_uncertainty() -> None:
                     "segments": [{"text": "I am a student.", "role": "answer"}],
                 }
             ],
+            "solution_steps": [],
             "explanation_zh": "I 后面用 am。",
-            "key_vocabulary": [
-                {"word": "student", "meaning_zh": "学生", "ipa": "/ˈstuːdnt/"}
-            ],
-            "speak_units": [
+            "learning_points": [
                 {
+                    "block_id": "q1",
+                    "term": "student",
+                    "explanation_zh": "学生",
+                    "pronunciation": "/ˈstuːdnt/",
+                    "category": "word",
+                }
+            ],
+            "read_units": [
+                {
+                    "block_id": "q1",
                     "unit_type": "sentence",
                     "text": "I am a student.",
                     "meaning_zh": "我是一名学生。",
                 }
             ],
-            "uncertainty": {"requires_review": False, "confidence": 0.95},
+            "uncertainty": {"requires_review": False, "confidence": 0.95, "reason": None},
         }
     )
 
@@ -114,6 +123,7 @@ def test_repair_missing_vocabulary_calls_model_once() -> None:
     pipeline.llm_client = llm_client
     result = HomeworkParseResult.model_validate(
         {
+            "subject": "english",
             "question_meaning_zh": "补全句子。\n补全完整句子。",
             "question_instruction": {
                 "text": "Complete the sentence.",
@@ -141,23 +151,31 @@ def test_repair_missing_vocabulary_calls_model_once() -> None:
                     "segments": [{"text": "I am a student.", "role": "answer"}],
                 }
             ],
+            "solution_steps": [],
             "explanation_zh": "I 后面用 am。",
-            "key_vocabulary": [
-                {"word": "student", "meaning_zh": "学生", "ipa": "/ˈstuːdnt/"}
-            ],
-            "speak_units": [
+            "learning_points": [
                 {
+                    "block_id": "q1",
+                    "term": "student",
+                    "explanation_zh": "学生",
+                    "pronunciation": "/ˈstuːdnt/",
+                    "category": "word",
+                }
+            ],
+            "read_units": [
+                {
+                    "block_id": "q1",
                     "unit_type": "sentence",
                     "text": "I am a student.",
                     "meaning_zh": "我是一名学生。",
                 }
             ],
-            "uncertainty": {"requires_review": False, "confidence": 0.95},
+            "uncertainty": {"requires_review": False, "confidence": 0.95, "reason": None},
         }
     )
 
     out = asyncio.run(pipeline._repair_missing_vocabulary(result, model=None))
 
     assert llm_client.calls == 1
-    assert any(item.word == "am" for item in out.key_vocabulary)
+    assert any(item.term == "am" for item in out.learning_points)
     assert out.uncertainty.requires_review is False
