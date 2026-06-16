@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 
 from app.core.models import HomeworkParseResult
+from app.core.config import Settings
+from app.core.errors import AppError
 from app.services.parse_pipeline import ParsePipeline
 
 
@@ -179,3 +181,70 @@ def test_repair_missing_vocabulary_calls_model_once() -> None:
     assert llm_client.calls == 1
     assert any(item.term == "am" for item in out.learning_points)
     assert out.uncertainty.requires_review is False
+
+
+def test_run_rejects_response_subject_mismatch() -> None:
+    class FakeLLMClient:
+        async def generate_json(
+            self,
+            prompt: str,
+            file_paths: list[str] | None = None,
+            model: str | None = None,
+        ) -> dict:
+            return {
+                "subject": "english",
+                "question_meaning_zh": "计算面积。",
+                "question_instruction": {
+                    "text": "求下面长方形的面积。",
+                    "meaning_zh": "计算长方形面积。",
+                    "confidence": 0.95,
+                },
+                "question_blocks": [
+                    {
+                        "block_id": "q1",
+                        "title": "第1题",
+                        "question_instruction": {
+                            "text": "求下面长方形的面积。",
+                            "meaning_zh": "计算长方形面积。",
+                            "confidence": 0.95,
+                        },
+                        "question_meaning_zh": "根据长和宽求面积。",
+                    }
+                ],
+                "answer_lines": [
+                    {
+                        "block_id": "q1",
+                        "number": "1",
+                        "line_type": "calculation",
+                        "plain_text": "8 × 5 = 40（平方厘米）",
+                        "segments": [
+                            {"text": "8 × 5 = ", "role": "given"},
+                            {"text": "40（平方厘米）", "role": "answer"},
+                        ],
+                    }
+                ],
+                "solution_steps": [
+                    {
+                        "block_id": "q1",
+                        "number": "1",
+                        "title": "列式",
+                        "content_zh": "长方形面积等于长乘宽。",
+                        "formula": "8 × 5 = 40",
+                        "result": "40 平方厘米",
+                    }
+                ],
+                "explanation_zh": "面积单位是平方厘米。",
+                "learning_points": [],
+                "read_units": [],
+                "uncertainty": {"requires_review": False, "confidence": 0.95, "reason": None},
+            }
+
+    pipeline = ParsePipeline(FakeLLMClient(), Settings())
+
+    try:
+        asyncio.run(pipeline.run(image_bytes=None, model=None, subject="science"))
+    except AppError as exc:
+        assert exc.code == "SCHEMA_VALIDATION_FAILED"
+        assert "does not match request subject" in exc.detail
+    else:
+        raise AssertionError("expected subject mismatch to fail")

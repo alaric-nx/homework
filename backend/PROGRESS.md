@@ -4,6 +4,10 @@
 
 - 时间：2026-06-16
 - 更新类型：阶段完成
+- 摘要：完成 review 优化：后端强校验响应 `subject` 必须匹配请求学科，并补充 subject mismatch 回归测试。
+
+- 时间：2026-06-16
+- 更新类型：阶段完成
 - 摘要：完成多学科 v3 后端实现：`subject` API 参数、四套提示词、JSON v3 schema、`learning_points` / `read_units` / `solution_steps`、缓存按学科区分和测试更新。
 
 - 时间：2026-06-16
@@ -99,6 +103,10 @@
   - 英语链路缺词义时最多额外调用一次模型并合并到 v3 字段
   - 任务缓存 schema 版本更新，缓存复用按 `subject` 区分
   - 后端回归测试已通过：`python -m pytest -q`，共 17 个测试。
+- 完成 review 优化：
+  - 后端强校验模型返回的 `subject` 必须等于请求 `subject`
+  - 补充 subject mismatch 回归测试
+  - 后端回归测试已通过：`python -m pytest -q`，共 18 个测试。
 
 阻塞项：
 

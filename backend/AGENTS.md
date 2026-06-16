@@ -113,6 +113,7 @@ POST /v1/homework/parse?subject=<general|english|liberal_arts|science>
 - 所有数组字段必须存在；没有内容时使用空数组。
 - `question_blocks` 和 `answer_lines` 至少 1 项。
 - `subject` 必须等于请求传入的 subject。
+- 后端在 schema 校验后再次检查 `result.subject == request.subject`；不匹配时任务失败，不返回错学科结果。
 - `uncertainty.requires_review=true` 时必须提供 `reason`。
 
 `answer_lines[].line_type` 目标枚举：
@@ -158,6 +159,7 @@ POST /v1/homework/parse?subject=<general|english|liberal_arts|science>
 - 只收录适合 Android TTS 直接朗读的自然语言。
 - 数学公式、复杂化学式不强行进入 `read_units`。
 - 英语题中可放单词、答案句、题目要求。
+- `unit_type=word` 可作为前端点击词释义来源；结果页“可朗读内容”默认不重复展示 word 单元。
 
 ## JSON v3 完整示例
 

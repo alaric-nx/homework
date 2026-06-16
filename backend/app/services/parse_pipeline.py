@@ -407,6 +407,11 @@ class ParsePipeline:
         normalized_candidate = self._normalize_candidate(candidate)
         try:
             validated = self.schema_guard.validate_payload(normalized_candidate)
+            if validated.subject != subject:
+                raise AppError(
+                    "SCHEMA_VALIDATION_FAILED",
+                    f"response subject {validated.subject!r} does not match request subject {subject!r}",
+                )
             if subject == "english":
                 validated = await self._repair_missing_vocabulary(validated, model)
             logger.info(

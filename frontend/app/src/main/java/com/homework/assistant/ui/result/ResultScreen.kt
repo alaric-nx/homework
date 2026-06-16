@@ -176,6 +176,9 @@ fun ResultScreen(
     val sentenceTranslationLookup = remember(result) {
         buildSentenceTranslationLookup(result?.read_units.orEmpty())
     }
+    val displayReadUnits = remember(result) {
+        result?.read_units.orEmpty().filter { it.unit_type != "word" }
+    }
     val originalBitmap = remember(originalImagePath) {
         originalImagePath?.let { path ->
             try {
@@ -316,10 +319,10 @@ fun ResultScreen(
                     if (r.learning_points.isNotEmpty()) {
                         item { LearningPointsCard(r.learning_points) }
                     }
-                    if (r.read_units.isNotEmpty()) {
+                    if (displayReadUnits.isNotEmpty()) {
                         item {
                             ReadUnitsCard(
-                                units = r.read_units,
+                                units = displayReadUnits,
                                 onSpeak = {
                                     activeTip = null
                                     activeSentenceTip = null
@@ -647,10 +650,10 @@ private fun LearningPointsCard(points: List<LearningPoint>) {
 @Composable
 private fun LearningPointRow(point: LearningPoint) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
                 point.term,
