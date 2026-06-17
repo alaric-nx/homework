@@ -53,7 +53,13 @@ class UploadWorker(
                 .addTag("upload_$taskId")
                 .build()
 
-            WorkManager.getInstance(context).enqueue(request)
+            // 以本地 taskId 作为唯一任务名，避免同一任务（重试 / 重新解题）并发跑多个 Worker。
+            // REPLACE：新的请求会取消并替换仍在排队/运行的旧 Worker。
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "upload_$taskId",
+                ExistingWorkPolicy.REPLACE,
+                request
+            )
         }
     }
 
@@ -136,13 +142,16 @@ class UploadWorker(
                     when (status.status.lowercase()) {
                         "completed" -> {
                             val parseResult = status.result
+                            // question_blocks 是所有学科的必需结构；参考答案可来自 answer_lines
+                            // 或（理科为主的）solution_steps，二者至少有其一即视为有效结果。
                             if (
                                 parseResult == null ||
                                 parseResult.subject.isBlank() ||
                                 parseResult.question_blocks.isEmpty() ||
-                                parseResult.answer_lines.isEmpty()
+                                (parseResult.answer_lines.isEmpty() &&
+                                    parseResult.solution_steps.isEmpty())
                             ) {
-                                val msg = "后端返回缺少 subject、question_blocks 或 answer_lines，请检查后端是否已部署当前 JSON v3 契约。"
+                                val msg = "后端返回缺少 subject、question_blocks 或答案内容（answer_lines / solution_steps），请检查后端是否已部署当前 JSON v3 契约。"
                                 Log.e(TAG, "Task $localTaskId invalid result: $msg")
                                 markFailed(localTaskId, msg)
                                 return Result.failure()

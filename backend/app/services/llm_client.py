@@ -21,210 +21,107 @@ class LLMClient:
         self.settings = settings
 
     def _load_config(self) -> dict[str, Any]:
-        # Try local config first
-        local_config = Path.cwd() / ".config" / "llm.json"
-        if local_config.exists():
+        """Load the multi-provider LLM config.
+
+        查找顺序：
+        1. 当前工作目录下的 backend/.config/llm.json
+        2. 用户级 ~/.config/llm/config.json
+        凭据全部来自配置文件 / 环境变量，源码中不内置任何密钥。
+        """
+        candidates = [
+            Path.cwd() / ".config" / "llm.json",
+            Path.home() / ".config" / "llm" / "config.json",
+        ]
+        for path in candidates:
+            if not path.exists():
+                continue
             try:
-                with open(local_config, "r", encoding="utf-8") as f:
+                with open(path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                logger.warning("Failed to load local config: %s", e)
+                logger.warning("Failed to load LLM config %s: %s", path, e)
+        return {}
 
-        # Try global config
-        global_config = Path.home() / ".config" / "llm" / "config.json"
-        if global_config.exists():
-            try:
-                with open(global_config, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.warning("Failed to load global config: %s", e)
+    def _provider_config(self, provider: str, config: dict[str, Any]) -> dict[str, Any]:
+        """Return a normalized provider entry: {base_url, api_key, default_model}.
 
+        同时兼容旧版 opencode 风格 provider.<name>.options.{baseURL,apiKey}。
+        """
+        providers = config.get("providers")
+        if isinstance(providers, dict) and provider in providers:
+            entry = providers[provider] or {}
+            return {
+                "base_url": entry.get("base_url") or entry.get("baseURL"),
+                "api_key": entry.get("api_key") or entry.get("apiKey"),
+                "default_model": entry.get("default_model") or entry.get("model"),
+            }
+
+        legacy = config.get("provider", {}).get(provider, {}) if isinstance(config.get("provider"), dict) else {}
+        if legacy:
+            opts = legacy.get("options", {}) or {}
+            return {
+                "base_url": opts.get("baseURL") or opts.get("base_url"),
+                "api_key": opts.get("apiKey") or opts.get("api_key"),
+                "default_model": None,
+            }
         return {}
 
     def _resolve_provider_and_model(
         self, model_str: str | None, config: dict[str, Any]
     ) -> tuple[str, str]:
-        # 1. Determine model_str to use
+        # 1. 显式 model 优先（请求参数 > HW_LLM_MODEL）
         effective_model = (model_str or "").strip() or self.settings.llm_model.strip()
-        if not effective_model:
-            effective_model = config.get("model", "").strip() or "cpa/claude-opus-4-6-thinking"
 
-        # 2. Extract provider and clean model name
+        # 2. 形如 "<provider>/<model>" 时，直接拆分
         if "/" in effective_model:
             provider, model_name = effective_model.split("/", 1)
-        else:
-            provider = "cpa"
-            model_name = effective_model
+            return provider.strip(), model_name.strip()
 
+        # 3. 选择 active provider：HW_LLM_PROVIDER > 配置文件 active_provider
+        provider = (
+            self.settings.llm_provider.strip()
+            or str(config.get("active_provider") or config.get("default_provider") or "").strip()
+        )
+        if not provider:
+            raise AppError(
+                "MODEL_FAILED",
+                "No LLM provider selected. Set HW_LLM_PROVIDER or active_provider in backend/.config/llm.json.",
+            )
+
+        # 4. model 名：显式 model_str（无 provider 前缀）> provider 的 default_model
+        model_name = effective_model or (self._provider_config(provider, config).get("default_model") or "")
+        if not model_name:
+            raise AppError(
+                "MODEL_FAILED",
+                f"No model configured for provider '{provider}'. Set default_model in backend/.config/llm.json.",
+            )
         return provider, model_name
 
     def _load_api_credentials(self, provider: str, config: dict[str, Any]) -> tuple[str, str]:
-        # 1. Try environment variables for this specific provider first (e.g. HW_CPA_API_BASE_URL, HW_CPA_API_KEY)
+        # 1. 针对该 provider 的环境变量（如 HW_CPA_API_BASE_URL / HW_CPA_API_KEY）
         prefix = provider.upper().replace("-", "_")
         base_url = os.getenv(f"HW_{prefix}_API_BASE_URL") or os.getenv(f"{prefix}_API_BASE_URL")
         api_key = os.getenv(f"HW_{prefix}_API_KEY") or os.getenv(f"{prefix}_API_KEY")
-        
+
+        # 2. 配置文件中的 provider 凭据
+        entry = self._provider_config(provider, config)
+        base_url = base_url or entry.get("base_url")
+        api_key = api_key or entry.get("api_key")
+
         if base_url and api_key:
             return base_url, api_key
-
-        # 2. Try general environment variables
-        base_url = os.getenv("HW_API_BASE_URL") or os.getenv("OPENAI_BASE_URL")
-        api_key = os.getenv("HW_API_KEY") or os.getenv("OPENAI_API_KEY")
-        if base_url and api_key:
-            return base_url, api_key
-
-        # 3. Try to extract from the config dict
-        provider_opts = config.get("provider", {}).get(provider, {}).get("options", {})
-        url = provider_opts.get("baseURL")
-        key = provider_opts.get("apiKey")
-        if url and key:
-            return url, key
-
-        # 4. Fallback to hardcoded defaults (cpa provider)
-        if provider == "cpa":
-            return "https://api-ai.for2.top/v1", "sk-api-for2_DevOps"
 
         raise AppError(
             "MODEL_FAILED",
-            f"No API credentials configured for provider '{provider}'."
+            f"No API credentials configured for provider '{provider}'. "
+            "Configure it in backend/.config/llm.json (providers.<name>.base_url/api_key) "
+            f"or via env HW_{prefix}_API_BASE_URL / HW_{prefix}_API_KEY.",
         )
 
-    async def generate_json(
-        self,
-        prompt: str,
-        file_paths: list[str] | None = None,
-        model: str | None = None,
-    ) -> dict[str, Any]:
-        if not self.settings.llm_enabled:
-            raise AppError(
-                "MODEL_FAILED",
-                "LLM integration is disabled.",
-            )
-
-        config = self._load_config()
-        provider, model_name = self._resolve_provider_and_model(model, config)
-        base_url, api_key = self._load_api_credentials(provider, config)
-
-        logger.info(
-            "llm_client_prepared provider=%s model=%s files=%s url=%s",
-            provider,
-            model_name,
-            len(file_paths or []),
-            base_url,
-        )
-
-        content = [{"type": "text", "text": prompt}]
-        for path in file_paths or []:
-            try:
-                p = Path(path)
-                if p.exists():
-                    img_bytes = p.read_bytes()
-                    encoded = base64.b64encode(img_bytes).decode("utf-8")
-                    content.append({
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{encoded}"
-                        }
-                    })
-            except Exception as e:
-                logger.error("Failed to read/encode file %s: %s", path, e)
-
-        payload = {
-            "model": model_name,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": content
-                }
-            ],
-            "response_format": {"type": "json_object"}
-        }
-
-        # Setup proxy if configured
-        proxy = None
-        if self.settings.proxy_all:
-            proxy = self.settings.proxy_all
-        elif self.settings.proxy_https:
-            proxy = self.settings.proxy_https
-        elif self.settings.proxy_http:
-            proxy = self.settings.proxy_http
-
-        timeout = httpx.Timeout(self.settings.llm_timeout_sec, connect=10.0)
-        
-        try:
-            if proxy:
-                client = httpx.AsyncClient(timeout=timeout, proxy=proxy)
-            else:
-                client = httpx.AsyncClient(timeout=timeout)
-                
-            async with client:
-                response = await client.post(
-                    f"{base_url.rstrip('/')}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json=payload
-                )
-        except httpx.TimeoutException as exc:
-            raise AppError("TIMEOUT", "LLM API request timed out.") from exc
-        except Exception as exc:
-            logger.error("llm_api_call_exception: %s", exc)
-            raise AppError("MODEL_FAILED", f"LLM API request failed: {exc}") from exc
-
-        if response.status_code != 200:
-            logger.error(
-                "llm_api_call_failed status=%s response=%s",
-                response.status_code,
-                response.text.strip()[:500],
-            )
-            raise AppError(
-                "MODEL_FAILED", f"LLM API request failed with status {response.status_code}."
-            )
-
-        try:
-            resp_data = response.json()
-            content_text = resp_data["choices"][0]["message"]["content"]
-        except Exception as exc:
-            logger.error("Failed to parse LLM API response JSON: %s", exc)
-            raise AppError("MODEL_FAILED", "Failed to parse LLM API response JSON.")
-
-        self._dump_raw_output(
-            prompt=prompt, stdout_text=content_text, stderr_text=""
-        )
-
-        logger.info(
-            "llm_api_raw_output content_len=%s content_head=%s",
-            len(content_text),
-            content_text[:300].replace("\n", "\\n"),
-        )
-
-        try:
-            payload = self._parse_json_payload(content_text)
-            self._raise_if_error(payload)
-            return payload
-        except json.JSONDecodeError as exc:
-            raise AppError(
-                "MODEL_FAILED", "LLM API output is not valid JSON."
-            ) from exc
-
-    async def generate_any_json(
-        self,
-        prompt: str,
-        file_paths: list[str] | None = None,
-        model: str | None = None,
-    ) -> dict[str, Any]:
-        if not self.settings.llm_enabled:
-            raise AppError(
-                "MODEL_FAILED",
-                "LLM integration is disabled.",
-            )
-
-        config = self._load_config()
-        provider, model_name = self._resolve_provider_and_model(model, config)
-        base_url, api_key = self._load_api_credentials(provider, config)
-
-        content = [{"type": "text", "text": prompt}]
+    def _build_message_content(
+        self, prompt: str, file_paths: list[str] | None
+    ) -> list[dict[str, Any]]:
+        content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
         for path in file_paths or []:
             try:
                 p = Path(path)
@@ -239,28 +136,56 @@ class LLMClient:
                     )
             except Exception as e:
                 logger.error("Failed to read/encode file %s: %s", path, e)
+        return content
+
+    def _resolve_proxy(self) -> str | None:
+        if self.settings.proxy_all:
+            return self.settings.proxy_all
+        if self.settings.proxy_https:
+            return self.settings.proxy_https
+        if self.settings.proxy_http:
+            return self.settings.proxy_http
+        return None
+
+    async def _request_chat_completion(
+        self,
+        prompt: str,
+        file_paths: list[str] | None,
+        model: str | None,
+    ) -> str:
+        """Shared chat-completion call: resolve provider/credentials, POST, return raw content text."""
+        if not self.settings.llm_enabled:
+            raise AppError("MODEL_FAILED", "LLM integration is disabled.")
+
+        config = self._load_config()
+        provider, model_name = self._resolve_provider_and_model(model, config)
+        base_url, api_key = self._load_api_credentials(provider, config)
+
+        logger.info(
+            "llm_client_prepared provider=%s model=%s files=%s url=%s",
+            provider,
+            model_name,
+            len(file_paths or []),
+            base_url,
+        )
 
         payload = {
             "model": model_name,
-            "messages": [{"role": "user", "content": content}],
+            "messages": [
+                {"role": "user", "content": self._build_message_content(prompt, file_paths)}
+            ],
             "response_format": {"type": "json_object"},
         }
 
-        proxy = None
-        if self.settings.proxy_all:
-            proxy = self.settings.proxy_all
-        elif self.settings.proxy_https:
-            proxy = self.settings.proxy_https
-        elif self.settings.proxy_http:
-            proxy = self.settings.proxy_http
-
+        proxy = self._resolve_proxy()
         timeout = httpx.Timeout(self.settings.llm_timeout_sec, connect=10.0)
-        try:
-            if proxy:
-                client = httpx.AsyncClient(timeout=timeout, proxy=proxy)
-            else:
-                client = httpx.AsyncClient(timeout=timeout)
 
+        try:
+            client = (
+                httpx.AsyncClient(timeout=timeout, proxy=proxy)
+                if proxy
+                else httpx.AsyncClient(timeout=timeout)
+            )
             async with client:
                 response = await client.post(
                     f"{base_url.rstrip('/')}/chat/completions",
@@ -295,6 +220,38 @@ class LLMClient:
             raise AppError("MODEL_FAILED", "Failed to parse LLM API response JSON.")
 
         self._dump_raw_output(prompt=prompt, stdout_text=content_text, stderr_text="")
+        return content_text
+
+    async def generate_json(
+        self,
+        prompt: str,
+        file_paths: list[str] | None = None,
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        content_text = await self._request_chat_completion(prompt, file_paths, model)
+
+        logger.info(
+            "llm_api_raw_output content_len=%s content_head=%s",
+            len(content_text),
+            content_text[:300].replace("\n", "\\n"),
+        )
+
+        try:
+            payload = self._parse_json_payload(content_text)
+            self._raise_if_error(payload)
+            return payload
+        except json.JSONDecodeError as exc:
+            raise AppError(
+                "MODEL_FAILED", "LLM API output is not valid JSON."
+            ) from exc
+
+    async def generate_any_json(
+        self,
+        prompt: str,
+        file_paths: list[str] | None = None,
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        content_text = await self._request_chat_completion(prompt, file_paths, model)
         try:
             return self._parse_any_json_payload(content_text)
         except json.JSONDecodeError as exc:
@@ -450,17 +407,12 @@ class LLMClient:
         return objs
 
     def _extract_candidate_payload(self, value: Any) -> dict[str, Any] | None:
+        # 仅用最具辨识度的核心字段来"认出"我们的结果对象。
+        # 不要求 10 个字段全齐，这样模型即便漏了某个可选数组（如 read_units），
+        # 也能被识别后交给 normalize 补全 / schema 修复，而不是直接判 MODEL_FAILED。
         required = {
-            "subject",
-            "question_meaning_zh",
-            "question_instruction",
             "question_blocks",
             "answer_lines",
-            "solution_steps",
-            "explanation_zh",
-            "learning_points",
-            "read_units",
-            "uncertainty",
         }
 
         def walk(v: Any) -> dict[str, Any] | None:

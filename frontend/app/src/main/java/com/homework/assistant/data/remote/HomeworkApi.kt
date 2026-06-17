@@ -32,27 +32,33 @@ class HttpStatusException(val code: Int, message: String) : IOException(message)
 class HomeworkApi(
     private val baseUrl: String = "https://hs.for2.top:44443"
 ) {
-    private val client: OkHttpClient
+    private val gson = Gson()
 
-    init {
-        val trustAll = object : X509TrustManager {
-            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
-            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
-            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+    companion object {
+        /**
+         * 共享的 OkHttpClient：复用连接池与线程资源。
+         * 之前每次 new HomeworkApi() 都会重建 client + SSLContext，浪费连接池且开销大。
+         */
+        private val sharedClient: OkHttpClient by lazy {
+            val trustAll = object : X509TrustManager {
+                override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+                override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+                override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+            }
+            val sslContext = SSLContext.getInstance("TLS")
+            sslContext.init(null, arrayOf<TrustManager>(trustAll), SecureRandom())
+
+            OkHttpClient.Builder()
+                .sslSocketFactory(sslContext.socketFactory, trustAll)
+                .hostnameVerifier { _, _ -> true }
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(120, TimeUnit.SECONDS)
+                .writeTimeout(30, TimeUnit.SECONDS)
+                .build()
         }
-        val sslContext = SSLContext.getInstance("TLS")
-        sslContext.init(null, arrayOf<TrustManager>(trustAll), SecureRandom())
-
-        client = OkHttpClient.Builder()
-            .sslSocketFactory(sslContext.socketFactory, trustAll)
-            .hostnameVerifier { _, _ -> true }
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .build()
     }
 
-    private val gson = Gson()
+    private val client: OkHttpClient get() = sharedClient
 
     /**
      * 异步提交解析请求：上传题图二进制，立即返回 task_id。

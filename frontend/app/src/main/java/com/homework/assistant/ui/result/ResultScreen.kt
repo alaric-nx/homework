@@ -133,6 +133,76 @@ private data class SentenceTipTarget(
     val translation: String
 )
 
+/** 某个交互功能的可见性策略。 */
+private enum class FeatureVisibility {
+    /** 始终显示 */
+    ALWAYS,
+    /** 仅当有对应数据时显示（按需） */
+    WHEN_AVAILABLE,
+    /** 从不显示 */
+    NEVER
+}
+
+/**
+ * 按学科决定结果页各交互/展示的差异。
+ * - english：单词释义 tip + 翻译 + 朗读 + 音标，全开。
+ * - liberal_arts：无单词 tip；古诗文有今译时显示翻译；可朗读；发音=拼音。
+ * - science：答案行不朗读、无 tip、无翻译、不显示发音。
+ * - general：按需（有数据才显示对应功能）。
+ */
+private data class SubjectDisplayPolicy(
+    val wordTip: FeatureVisibility,
+    val translate: FeatureVisibility,
+    val answerLineSpeak: Boolean,
+    val showPronunciation: Boolean,
+    val pronunciationLabel: String,
+    val subject: String
+) {
+    fun showTranslate(translation: String?): Boolean = when (translate) {
+        FeatureVisibility.ALWAYS -> true
+        FeatureVisibility.WHEN_AVAILABLE -> !translation.isNullOrBlank()
+        FeatureVisibility.NEVER -> false
+    }
+
+    companion object {
+        fun forSubject(subject: String): SubjectDisplayPolicy = when (subject) {
+            "english" -> SubjectDisplayPolicy(
+                wordTip = FeatureVisibility.ALWAYS,
+                translate = FeatureVisibility.ALWAYS,
+                answerLineSpeak = true,
+                showPronunciation = true,
+                pronunciationLabel = "音标",
+                subject = subject
+            )
+            "liberal_arts" -> SubjectDisplayPolicy(
+                wordTip = FeatureVisibility.NEVER,
+                translate = FeatureVisibility.WHEN_AVAILABLE,
+                answerLineSpeak = true,
+                showPronunciation = true,
+                pronunciationLabel = "拼音",
+                subject = subject
+            )
+            "science" -> SubjectDisplayPolicy(
+                wordTip = FeatureVisibility.NEVER,
+                translate = FeatureVisibility.NEVER,
+                answerLineSpeak = false,
+                showPronunciation = false,
+                pronunciationLabel = "",
+                subject = subject
+            )
+            else -> SubjectDisplayPolicy(
+                // general：按需
+                wordTip = FeatureVisibility.WHEN_AVAILABLE,
+                translate = FeatureVisibility.WHEN_AVAILABLE,
+                answerLineSpeak = true,
+                showPronunciation = true,
+                pronunciationLabel = "读音",
+                subject = "general"
+            )
+        }
+    }
+}
+
 @Composable
 fun ResultScreen(
     taskId: String,
@@ -164,14 +234,21 @@ fun ResultScreen(
     val questionBlocks = remember(result) {
         buildDisplayQuestionBlocks(
             blocks = result?.question_blocks.orEmpty(),
-            answerLines = result?.answer_lines.orEmpty()
+            answerLines = result?.answer_lines.orEmpty(),
+            solutionSteps = result?.solution_steps.orEmpty()
         )
     }
-    val vocabLookup = remember(result) {
-        buildVocabularyLookup(
-            items = result?.learning_points.orEmpty(),
-            units = result?.read_units.orEmpty()
+    val vocabResolver = remember(result) {
+        VocabResolver(
+            lookup = buildVocabularyLookup(
+                items = result?.learning_points.orEmpty(),
+                units = result?.read_units.orEmpty()
+            ),
+            englishStemming = result?.subject == "english"
         )
+    }
+    val displayPolicy = remember(result) {
+        SubjectDisplayPolicy.forSubject(result?.subject ?: "general")
     }
     val sentenceTranslationLookup = remember(result) {
         buildSentenceTranslationLookup(result?.read_units.orEmpty())
@@ -283,7 +360,8 @@ fun ResultScreen(
                             item {
                                 QuestionBlockAnswerCard(
                                     block = block,
-                                    vocabLookup = vocabLookup,
+                                    vocabResolver = vocabResolver,
+                                    displayPolicy = displayPolicy,
                                     sentenceTranslationLookup = sentenceTranslationLookup,
                                     activeTip = activeTip,
                                     activeSentenceTip = activeSentenceTip,
@@ -317,7 +395,7 @@ fun ResultScreen(
                     }
                     item { SectionCard(stringResource(R.string.explanation), r.explanation_zh) }
                     if (r.learning_points.isNotEmpty()) {
-                        item { LearningPointsCard(r.learning_points) }
+                        item { LearningPointsCard(r.learning_points, displayPolicy) }
                     }
                     if (displayReadUnits.isNotEmpty()) {
                         item {
@@ -340,7 +418,8 @@ fun ResultScreen(
 @Composable
 private fun QuestionBlockAnswerCard(
     block: DisplayQuestionBlock,
-    vocabLookup: Map<String, LearningPoint>,
+    vocabResolver: VocabResolver,
+    displayPolicy: SubjectDisplayPolicy,
     sentenceTranslationLookup: Map<String, String>,
     activeTip: WordTipTarget?,
     activeSentenceTip: SentenceTipTarget?,
@@ -385,7 +464,8 @@ private fun QuestionBlockAnswerCard(
                 HorizontalDivider(color = Color(0xFFE9EDF3))
                 AnswerPronunciationContent(
                     lines = block.lines,
-                    vocabLookup = vocabLookup,
+                    vocabResolver = vocabResolver,
+                    displayPolicy = displayPolicy,
                     sentenceTranslationLookup = sentenceTranslationLookup,
                     activeTip = activeTip,
                     activeSentenceTip = activeSentenceTip,
@@ -619,7 +699,7 @@ private fun SolutionStepRow(step: SolutionStep) {
 }
 
 @Composable
-private fun LearningPointsCard(points: List<LearningPoint>) {
+private fun LearningPointsCard(points: List<LearningPoint>, displayPolicy: SubjectDisplayPolicy) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = ResultCardShape,
@@ -641,14 +721,14 @@ private fun LearningPointsCard(points: List<LearningPoint>) {
                 if (index > 0) {
                     HorizontalDivider(color = Color(0xFFE9EDF3))
                 }
-                LearningPointRow(point)
+                LearningPointRow(point, displayPolicy)
             }
         }
     }
 }
 
 @Composable
-private fun LearningPointRow(point: LearningPoint) {
+private fun LearningPointRow(point: LearningPoint, displayPolicy: SubjectDisplayPolicy) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
@@ -661,14 +741,17 @@ private fun LearningPointRow(point: LearningPoint) {
                 fontWeight = FontWeight.SemiBold,
                 color = InkText
             )
-            point.pronunciation?.trim()?.takeIf { it.isNotBlank() }?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF667085)
-                )
+            // 理科无"发音"概念，不展示 pronunciation；其余学科有才展示。
+            if (displayPolicy.showPronunciation) {
+                point.pronunciation?.trim()?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF667085)
+                    )
+                }
             }
-            LearningPointCategoryPill(point.category)
+            LearningPointCategoryPill(point.category, displayPolicy.subject)
         }
         Text(
             point.explanation_zh,
@@ -679,14 +762,14 @@ private fun LearningPointRow(point: LearningPoint) {
 }
 
 @Composable
-private fun LearningPointCategoryPill(category: String) {
+private fun LearningPointCategoryPill(category: String, subject: String) {
     Surface(
         shape = TokenShape,
         color = SoftAccentSurface,
         contentColor = Color(0xFF22603A)
     ) {
         Text(
-            text = learningPointCategoryLabel(category),
+            text = learningPointCategoryLabel(category, subject),
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
             style = MaterialTheme.typography.labelSmall
         )
@@ -836,7 +919,8 @@ private fun QuestionRequirementCard(
 @Composable
 private fun AnswerPronunciationContent(
     lines: List<DisplayAnswerLine>,
-    vocabLookup: Map<String, LearningPoint>,
+    vocabResolver: VocabResolver,
+    displayPolicy: SubjectDisplayPolicy,
     sentenceTranslationLookup: Map<String, String>,
     activeTip: WordTipTarget?,
     activeSentenceTip: SentenceTipTarget?,
@@ -856,7 +940,8 @@ private fun AnswerPronunciationContent(
                 lineType = line.lineType,
                 text = line.text,
                 segments = line.segments,
-                vocabLookup = vocabLookup,
+                vocabResolver = vocabResolver,
+                displayPolicy = displayPolicy,
                 translation = findSentenceTranslation(line.text, sentenceTranslationLookup),
                 activeTip = activeTip,
                 activeSentenceTip = activeSentenceTip,
@@ -876,7 +961,8 @@ private fun SpeakableLineRow(
     lineType: String,
     text: String,
     segments: List<DisplayAnswerSegment>,
-    vocabLookup: Map<String, LearningPoint>,
+    vocabResolver: VocabResolver,
+    displayPolicy: SubjectDisplayPolicy,
     translation: String?,
     activeTip: WordTipTarget?,
     activeSentenceTip: SentenceTipTarget?,
@@ -906,12 +992,16 @@ private fun SpeakableLineRow(
             Spacer(modifier = Modifier.width(10.dp))
         }
 
-        if (shouldRenderAsAtomicLine(lineType, text, segments)) {
+        if (!displayPolicy.answerLineSpeak) {
+            // 理科：答案行纯展示，不朗读、不弹词义。
+            PlainAnswerLine(segments = segments, modifier = Modifier.weight(1f))
+        } else if (shouldRenderAsAtomicLine(lineType, text, segments)) {
             AtomicAnswerLine(
                 lineId = lineId,
                 text = text,
                 segments = segments,
-                vocabLookup = vocabLookup,
+                vocabResolver = vocabResolver,
+                displayPolicy = displayPolicy,
                 activeTip = activeTip,
                 onTipChange = onTipChange,
                 onSpeakWord = onSpeakWord,
@@ -932,7 +1022,8 @@ private fun SpeakableLineRow(
                             tipTarget = buildTipTarget(
                                 id = "$lineId-$index",
                                 rawWord = token.text,
-                                vocabLookup = vocabLookup
+                                vocabResolver = vocabResolver,
+                                wordTip = displayPolicy.wordTip
                             ),
                             activeTip = activeTip,
                             onTipChange = onTipChange,
@@ -949,26 +1040,53 @@ private fun SpeakableLineRow(
             }
         }
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.Top
-        ) {
-            IconButton(onClick = { onSpeakLine(text) }) {
-                Icon(
-                    Icons.Default.VolumeUp,
-                    contentDescription = stringResource(R.string.pronunciation_voice),
-                    tint = Color(0xFF1565C0)
-                )
-            }
-            SentenceTranslationButton(
-                lineId = lineId,
-                text = text,
-                translation = translation,
-                activeSentenceTip = activeSentenceTip,
-                onTipChange = {
-                    onTipChange(null)
-                    onSentenceTipChange(it)
+        val showTranslate = displayPolicy.showTranslate(translation)
+        if (displayPolicy.answerLineSpeak || showTranslate) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                if (displayPolicy.answerLineSpeak) {
+                    IconButton(onClick = { onSpeakLine(text) }) {
+                        Icon(
+                            Icons.Default.VolumeUp,
+                            contentDescription = stringResource(R.string.pronunciation_voice),
+                            tint = Color(0xFF1565C0)
+                        )
+                    }
                 }
+                if (showTranslate) {
+                    SentenceTranslationButton(
+                        lineId = lineId,
+                        text = text,
+                        translation = translation,
+                        activeSentenceTip = activeSentenceTip,
+                        onTipChange = {
+                            onTipChange(null)
+                            onSentenceTipChange(it)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlainAnswerLine(
+    segments: List<DisplayAnswerSegment>,
+    modifier: Modifier = Modifier
+) {
+    FlowRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        segments.forEach { segment ->
+            Text(
+                text = segment.text,
+                style = MaterialTheme.typography.bodyLarge,
+                color = answerSegmentColor(segment.role)
             )
         }
     }
@@ -979,7 +1097,8 @@ private fun AtomicAnswerLine(
     lineId: String,
     text: String,
     segments: List<DisplayAnswerSegment>,
-    vocabLookup: Map<String, LearningPoint>,
+    vocabResolver: VocabResolver,
+    displayPolicy: SubjectDisplayPolicy,
     activeTip: WordTipTarget?,
     onTipChange: (WordTipTarget?) -> Unit,
     onSpeakWord: (String) -> Unit,
@@ -988,58 +1107,18 @@ private fun AtomicAnswerLine(
     val tipTarget = buildTipTarget(
         id = "$lineId-atomic",
         rawWord = text,
-        vocabLookup = vocabLookup
+        vocabResolver = vocabResolver,
+        wordTip = displayPolicy.wordTip
     )
     val isTipOpen = tipTarget != null && activeTip?.id == tipTarget.id
-    val mainHandler = remember { Handler(Looper.getMainLooper()) }
-    var tipRunnable by remember { mutableStateOf<Runnable?>(null) }
-    var tipShownForCurrentPress by remember { mutableStateOf(false) }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            tipRunnable?.let { mainHandler.removeCallbacks(it) }
-            tipRunnable = null
-        }
-    }
 
     Box(
-        modifier = modifier.pointerInteropFilter { event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    tipRunnable?.let { mainHandler.removeCallbacks(it) }
-                    tipShownForCurrentPress = false
-                    val pendingTip = Runnable {
-                        if (tipTarget != null) {
-                            tipShownForCurrentPress = true
-                            onTipChange(tipTarget)
-                        }
-                    }
-                    tipRunnable = pendingTip
-                    mainHandler.postDelayed(pendingTip, WordTipPressDelayMs)
-                    true
-                }
-
-                MotionEvent.ACTION_UP -> {
-                    tipRunnable?.let { mainHandler.removeCallbacks(it) }
-                    tipRunnable = null
-                    if (!tipShownForCurrentPress) {
-                        onTipChange(null)
-                        onSpeakWord(text)
-                    }
-                    tipShownForCurrentPress = false
-                    true
-                }
-
-                MotionEvent.ACTION_CANCEL -> {
-                    tipRunnable?.let { mainHandler.removeCallbacks(it) }
-                    tipRunnable = null
-                    tipShownForCurrentPress = false
-                    true
-                }
-
-                else -> true
-            }
-        }
+        modifier = modifier.longPressToReadModifier(
+            tipTarget = tipTarget,
+            onShowTip = onTipChange,
+            onClearTip = { onTipChange(null) },
+            onSpeak = { onSpeakWord(text) }
+        )
     ) {
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -1182,56 +1261,14 @@ private fun SpeakableWordToken(
     onSpeakWord: (String) -> Unit
 ) {
     val isTipOpen = tipTarget != null && activeTip?.id == tipTarget.id
-    val mainHandler = remember { Handler(Looper.getMainLooper()) }
-    var tipRunnable by remember { mutableStateOf<Runnable?>(null) }
-    var tipShownForCurrentPress by remember { mutableStateOf(false) }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            tipRunnable?.let { mainHandler.removeCallbacks(it) }
-            tipRunnable = null
-        }
-    }
 
     Box(
-        modifier = Modifier
-            .pointerInteropFilter { event ->
-                when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        tipRunnable?.let { mainHandler.removeCallbacks(it) }
-                        tipShownForCurrentPress = false
-                        val pendingTip = Runnable {
-                            if (tipTarget != null) {
-                                tipShownForCurrentPress = true
-                                onTipChange(tipTarget)
-                            }
-                        }
-                        tipRunnable = pendingTip
-                        mainHandler.postDelayed(pendingTip, WordTipPressDelayMs)
-                        true
-                    }
-
-                    MotionEvent.ACTION_UP -> {
-                        tipRunnable?.let { mainHandler.removeCallbacks(it) }
-                        tipRunnable = null
-                        if (!tipShownForCurrentPress) {
-                            onTipChange(null)
-                            onSpeakWord(token)
-                        }
-                        tipShownForCurrentPress = false
-                        true
-                    }
-
-                    MotionEvent.ACTION_CANCEL -> {
-                        tipRunnable?.let { mainHandler.removeCallbacks(it) }
-                        tipRunnable = null
-                        tipShownForCurrentPress = false
-                        true
-                    }
-
-                    else -> true
-                }
-            }
+        modifier = Modifier.longPressToReadModifier(
+            tipTarget = tipTarget,
+            onShowTip = onTipChange,
+            onClearTip = { onTipChange(null) },
+            onSpeak = { onSpeakWord(token) }
+        )
     ) {
         Surface(
             shape = TokenShape,
@@ -1306,13 +1343,78 @@ private fun SpeakableWordToken(
     }
 }
 
+@Composable
+private fun Modifier.longPressToReadModifier(
+    tipTarget: WordTipTarget?,
+    onShowTip: (WordTipTarget) -> Unit,
+    onClearTip: () -> Unit,
+    onSpeak: () -> Unit
+): Modifier {
+    // 长按延迟弹出词义 tip；短按（未触发 tip）则朗读。
+    // 抽出复用，避免在 AtomicAnswerLine 与 SpeakableWordToken 中重复同一段手势代码。
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    var tipRunnable by remember { mutableStateOf<Runnable?>(null) }
+    var tipShownForCurrentPress by remember { mutableStateOf(false) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            tipRunnable?.let { mainHandler.removeCallbacks(it) }
+            tipRunnable = null
+        }
+    }
+
+    return this.pointerInteropFilter { event ->
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                tipRunnable?.let { mainHandler.removeCallbacks(it) }
+                tipShownForCurrentPress = false
+                val pendingTip = Runnable {
+                    if (tipTarget != null) {
+                        tipShownForCurrentPress = true
+                        onShowTip(tipTarget)
+                    }
+                }
+                tipRunnable = pendingTip
+                mainHandler.postDelayed(pendingTip, WordTipPressDelayMs)
+                true
+            }
+
+            MotionEvent.ACTION_UP -> {
+                tipRunnable?.let { mainHandler.removeCallbacks(it) }
+                tipRunnable = null
+                if (!tipShownForCurrentPress) {
+                    onClearTip()
+                    onSpeak()
+                }
+                tipShownForCurrentPress = false
+                true
+            }
+
+            MotionEvent.ACTION_CANCEL -> {
+                tipRunnable?.let { mainHandler.removeCallbacks(it) }
+                tipRunnable = null
+                tipShownForCurrentPress = false
+                true
+            }
+
+            else -> true
+        }
+    }
+}
+
 private fun buildDisplayQuestionBlocks(
     blocks: List<QuestionBlock>,
-    answerLines: List<ResultAnswerLine>
+    answerLines: List<ResultAnswerLine>,
+    solutionSteps: List<SolutionStep>
 ): List<DisplayQuestionBlock> {
-    val displayLines = buildDisplayAnswerLines(answerLines)
+    val displayLines = if (answerLines.isNotEmpty()) {
+        buildDisplayAnswerLines(answerLines)
+    } else {
+        buildDisplayAnswerLinesFromSolutionSteps(solutionSteps)
+    }
     val linesByBlock = displayLines.groupBy { it.blockId }
-    return blocks.mapIndexedNotNull { index, block ->
+    val knownBlockIds = blocks.mapNotNull { it.block_id.trim().takeIf { id -> id.isNotBlank() } }.toSet()
+    val result = blocks.mapIndexedNotNull { index, block ->
         val blockId = block.block_id.trim()
         if (blockId.isBlank()) return@mapIndexedNotNull null
         val title = block.title.trim().ifBlank { "第${index + 1}题" }
@@ -1324,7 +1426,24 @@ private fun buildDisplayQuestionBlocks(
             questionMeaning = block.question_meaning_zh.trim(),
             lines = linesByBlock[blockId].orEmpty()
         )
+    }.toMutableList()
+
+    // 兜底：block_id 无法对应任何题目块的答案行不应被静默丢弃，
+    // 统一归入一个"其他"分组展示，避免用户看不到答案。
+    val orphanLines = displayLines.filter { it.blockId.isBlank() || it.blockId !in knownBlockIds }
+    if (orphanLines.isNotEmpty()) {
+        result.add(
+            DisplayQuestionBlock(
+                blockId = "__orphan__",
+                title = "其他",
+                instructionText = "",
+                instructionMeaning = "",
+                questionMeaning = "",
+                lines = orphanLines
+            )
+        )
     }
+    return result
 }
 
 private fun buildDisplayAnswerLines(answerLines: List<ResultAnswerLine>): List<DisplayAnswerLine> {
@@ -1357,6 +1476,26 @@ private fun buildDisplayAnswerLines(answerLines: List<ResultAnswerLine>): List<D
             lineType = line.line_type.trim().lowercase(Locale.US),
             text = text,
             segments = segments
+        )
+    }
+}
+
+private fun buildDisplayAnswerLinesFromSolutionSteps(
+    solutionSteps: List<SolutionStep>
+): List<DisplayAnswerLine> {
+    return solutionSteps.mapIndexedNotNull { index, step ->
+        val text = step.result?.trim()?.takeIf { it.isNotBlank() }
+            ?: step.formula?.trim()?.takeIf { it.isNotBlank() }
+            ?: step.content_zh.trim().takeIf { it.isNotBlank() }
+            ?: return@mapIndexedNotNull null
+
+        DisplayAnswerLine(
+            id = "step-answer-$index",
+            blockId = step.block_id.trim(),
+            number = step.number.trim().takeIf { it.isNotBlank() },
+            lineType = "calculation",
+            text = text,
+            segments = listOf(DisplayAnswerSegment(text = text, role = "answer"))
         )
     }
 }
@@ -1413,9 +1552,9 @@ private fun answerSegmentColor(role: String): Color {
     }
 }
 
-private fun learningPointCategoryLabel(category: String): String {
+private fun learningPointCategoryLabel(category: String, subject: String): String {
     return when (category.lowercase(Locale.US)) {
-        "word" -> "单词"
+        "word" -> if (subject == "liberal_arts") "字词" else "单词"
         "concept" -> "概念"
         "formula" -> "公式"
         "unit" -> "单位"
@@ -1490,15 +1629,48 @@ private fun findSentenceTranslation(
     return null
 }
 
+private class VocabResolver(
+    private val lookup: Map<String, LearningPoint>,
+    private val englishStemming: Boolean
+) {
+    fun resolve(rawWord: String): LearningPoint? {
+        val normalized = normalizeWord(rawWord)
+        if (normalized.isEmpty()) return null
+        lookup[normalized]?.let { return it }
+        // 英语词形还原（ies/es/s）只对英语学科启用，避免文科/理科术语被误匹配。
+        if (!englishStemming) return null
+        val candidates = buildList {
+            if (normalized.length > 3 && normalized.endsWith("ies")) {
+                add(normalized.dropLast(3) + "y")
+            }
+            if (normalized.length > 2 && normalized.endsWith("es")) {
+                add(normalized.dropLast(2))
+            }
+            if (normalized.length > 1 && normalized.endsWith("s")) {
+                add(normalized.dropLast(1))
+            }
+        }.distinct()
+        for (candidate in candidates) {
+            lookup[candidate]?.let { return it }
+        }
+        return null
+    }
+}
+
 private fun buildTipTarget(
     id: String,
     rawWord: String,
-    vocabLookup: Map<String, LearningPoint>
+    vocabResolver: VocabResolver,
+    wordTip: FeatureVisibility
 ): WordTipTarget? {
+    if (wordTip == FeatureVisibility.NEVER) return null
     val normalized = normalizeWord(rawWord)
     if (normalized.isEmpty()) return null
 
-    val vocab = lookupVocabulary(normalized, vocabLookup)
+    val vocab = vocabResolver.resolve(rawWord)
+    // 按需模式下，没有真实词义就不弹 tip（避免噪音）。
+    if (wordTip == FeatureVisibility.WHEN_AVAILABLE && vocab == null) return null
+
     val meaning = vocab?.explanation_zh?.takeIf { it.isNotBlank() }
         ?: "暂无解释，点击可朗读"
     return WordTipTarget(
@@ -1507,27 +1679,4 @@ private fun buildTipTarget(
         ipa = vocab?.pronunciation?.takeIf { it.isNotBlank() },
         meaning = meaning
     )
-}
-
-private fun lookupVocabulary(
-    normalizedWord: String,
-    vocabLookup: Map<String, LearningPoint>
-): LearningPoint? {
-    if (normalizedWord.isBlank()) return null
-    val candidates = buildList {
-        add(normalizedWord)
-        if (normalizedWord.length > 3 && normalizedWord.endsWith("ies")) {
-            add(normalizedWord.dropLast(3) + "y")
-        }
-        if (normalizedWord.length > 2 && normalizedWord.endsWith("es")) {
-            add(normalizedWord.dropLast(2))
-        }
-        if (normalizedWord.length > 1 && normalizedWord.endsWith("s")) {
-            add(normalizedWord.dropLast(1))
-        }
-    }.distinct()
-    for (candidate in candidates) {
-        vocabLookup[candidate]?.let { return it }
-    }
-    return null
 }

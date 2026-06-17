@@ -55,6 +55,7 @@ class Settings:
     llm_enabled: bool = False
     llm_timeout_sec: int = 25
     llm_model: str = ""
+    llm_provider: str = ""
     llm_raw_log_dir: str = "logs/llm"
     proxy_http: str = ""
     proxy_https: str = ""
@@ -82,6 +83,7 @@ def get_settings() -> Settings:
         llm_enabled=os.getenv("HW_LLM_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
         llm_timeout_sec=int(os.getenv("HW_LLM_TIMEOUT_SEC", "25")),
         llm_model=os.getenv("HW_LLM_MODEL", ""),
+        llm_provider=os.getenv("HW_LLM_PROVIDER", ""),
         llm_raw_log_dir=os.getenv("HW_LLM_RAW_LOG_DIR", "logs/llm"),
         proxy_http=os.getenv("HW_PROXY_HTTP", ""),
         proxy_https=os.getenv("HW_PROXY_HTTPS", ""),

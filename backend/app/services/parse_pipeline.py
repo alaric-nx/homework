@@ -5,6 +5,7 @@ import json
 import re
 import tempfile
 import time
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,271 @@ READ_UNIT_TYPE_ALIASES = {
 READ_UNIT_TYPES = {"word", "text"}
 
 
+_SUBJECT_NOTES: dict[str, str] = {
+    "general": (
+        "你是通用作业解析助手。题目可能来自英语、语文、拼音、数学、科学或混合练习。"
+        "先判断题目类型，再按题目块输出答案、必要步骤、中文讲解、知识点和朗读内容。"
+        "不要强行套英语词汇表，也不要强行套数学公式。"
+    ),
+    "english": (
+        "你是英语练习题解析助手，适用于英语作业、练习册、考试题和基础学习题。"
+        "保持英语解析能力：完整答案行、题目要求原文、词义、发音(IPA)、句义和答案词义覆盖。"
+        "learning_points 重点放英文单词、短语、语法点，pronunciation 放 IPA。"
+        "read_units 放题目要求、答案句、需要点读的单词或短句。"
+        "推导答案后，必须再检查语法、拼写、时态、单复数和常见英语表达是否地道。"
+    ),
+    "liberal_arts": (
+        "你是文科作业解析助手，覆盖语文、拼音、道法、历史、地理等。"
+        "重点识别题目要求、材料、问题、选项和答题依据。"
+        "阅读理解和材料题必须说明答案依据。"
+        "拼音题把拼音放入 learning_points.pronunciation。"
+        "古诗文、文言文要在 read_units 同时给出原文和现代汉语翻译(meaning_zh)。"
+        "作文或开放题给出可参考答案和审题提示，不编造唯一标准答案。"
+    ),
+    "science": (
+        "你是理科作业解析助手，覆盖数学、科学、物理、化学等。"
+        "必须提取已知条件、要求的问题、关键公式或方法。"
+        "solution_steps 必须清楚展示列式、推理或计算过程。"
+        "answer_lines 放最终答案或需要填写的关键内容，答案要带单位。"
+        "单位、公式、易错概念进入 learning_points，不要给发音。复杂公式不要放入 read_units。"
+    ),
+}
+
+# 各学科的内部推理步骤（不展示给用户），按学科定制思路。
+_REASONING_STEPS: dict[str, str] = {
+    "general": (
+        "A. 判断图片里有几个独立题目块：看编号、标题、题目要求行、分隔线、版面分区。\n"
+        "B. 作答要求/编号体系/版面分区不同的，必须拆成不同 question_blocks。\n"
+        "C. 为每个题目块判断题型：填空、选择、判断、连线、排序、阅读、计算、作文等。\n"
+        "D. 找出每个题目块的作答要求。\n"
+        "E. 用最稳妥的方式推导答案，必要时补充步骤或依据，不强行套某一学科套路。\n"
+        "F. 检查答案是否符合图片、题干与学科常识。\n"
+    ),
+    "english": (
+        "A. 判断题目块数量与边界：看编号、标题、分隔线、版面分区。\n"
+        "B. 作答要求/编号/版面不同的，拆成不同 question_blocks。\n"
+        "C. 判断每个题目块题型：填空、选择、连词成句、阅读、翻译、改错等。\n"
+        "D. 推导答案；填空/补全必须给出补全后的完整句子。\n"
+        "E. 检查语法、拼写、时态、单复数与地道表达。\n"
+        "F. 为答案中的关键英文词补充词义和 IPA，确保答案词义覆盖。\n"
+    ),
+    "liberal_arts": (
+        "A. 判断题目块数量与边界：看编号、标题、分隔线、版面分区。\n"
+        "B. 读懂材料/题干/选项，明确每个题目块的作答要求。\n"
+        "C. 判断题型：阅读理解、拼音、字词、古诗文、选择、填空、作文等。\n"
+        "D. 推导答案；阅读理解和材料题必须给出答题依据。\n"
+        "E. 拼音题给出拼音，古诗文给出现代汉语翻译，字词给出释义。\n"
+        "F. 检查答案是否扣题、是否有据、是否符合常识。\n"
+    ),
+    "science": (
+        "A. 判断题目块数量与边界：看编号、标题、分隔线、版面分区。\n"
+        "B. 提取每个题目块的已知条件、所求问题与单位。\n"
+        "C. 判断题型（计算、应用、证明、选择、填空等），选择合适的公式或方法。\n"
+        "D. 在 solution_steps 中分步列式、推理、计算。\n"
+        "E. 得出最终答案并标注单位，answer_lines 放最终答案或关键列式。\n"
+        "F. 验算并检查单位、量纲与合理性。\n"
+    ),
+}
+
+# 在通用题型规则之后，针对各学科追加强调（不删除通用题型，只做加法）。
+_SUBJECT_TYPE_NOTES: dict[str, str] = {
+    "general": "",
+    "english": (
+        "英语补充规则：\n"
+        "- 填空/补全/连词成句：plain_text 必须是补全后的完整句子或短语。\n"
+        "- 答案中的关键英文词放入 learning_points(category=word)，尽量给 IPA。\n"
+        "- read_units 放题目要求、答案句、需要点读的单词或短句。\n"
+    ),
+    "liberal_arts": (
+        "文科补充规则：\n"
+        "- 阅读理解/材料题：答案必须说明依据。\n"
+        "- 拼音题：把拼音放入 learning_points.pronunciation。\n"
+        "- 古诗文/文言文：read_units 的 text 放原文，meaning_zh 放现代汉语翻译，便于点读和对照。\n"
+        "- 作文/开放题：给参考提纲或参考答案，不编造唯一标准答案。\n"
+    ),
+    "science": (
+        "理科补充规则：\n"
+        "- 计算/应用/证明题：solution_steps 至少 1 项，清楚展示列式、推理或计算过程；"
+        "answer_lines 放最终答案或关键列式，答案要带单位。\n"
+        "- 公式、单位、易错概念放入 learning_points(category=formula/unit/method/concept)，不要给发音。\n"
+        "- 复杂数学公式不要放入 read_units；read_units 只放自然语言（如题意、讲解）。\n"
+    ),
+}
+
+# 每个学科一个精简示例：只示意结构与字段关系，帮助模型稳定产出 v3 JSON（请勿照抄内容）。
+_SUBJECT_EXAMPLES: dict[str, str] = {
+    "general": (
+        "结构示例（仅示意，请勿照抄）：\n"
+        "{\n"
+        '  "subject": "general",\n'
+        '  "question_meaning_zh": "本图包含1个题目块，单项选择。",\n'
+        '  "question_instruction": {"text": "选择正确答案。", "meaning_zh": "选出正确选项。", "confidence": 0.93},\n'
+        '  "question_blocks": [{"block_id": "q1", "title": "第1题", "question_instruction": {"text": "选择正确答案。", "meaning_zh": "选出正确选项。", "confidence": 0.93}, "question_meaning_zh": "从选项中选出正确答案。"}],\n'
+        '  "answer_lines": [{"block_id": "q1", "number": "1", "line_type": "choice", "plain_text": "B", "segments": [{"text": "B", "role": "answer"}]}],\n'
+        '  "solution_steps": [],\n'
+        '  "explanation_zh": "根据题意，B 项符合。",\n'
+        '  "learning_points": [],\n'
+        '  "read_units": [],\n'
+        '  "uncertainty": {"requires_review": false, "confidence": 0.9, "reason": null}\n'
+        "}\n"
+    ),
+    "english": (
+        "结构示例（仅示意，请勿照抄）：\n"
+        "{\n"
+        '  "subject": "english",\n'
+        '  "question_meaning_zh": "本图包含1个题目块，要求补全句子。",\n'
+        '  "question_instruction": {"text": "Complete the sentence.", "meaning_zh": "补全句子。", "confidence": 0.95},\n'
+        '  "question_blocks": [{"block_id": "q1", "title": "第1题", "question_instruction": {"text": "Complete the sentence.", "meaning_zh": "补全句子。", "confidence": 0.95}, "question_meaning_zh": "把空格补成完整句子。"}],\n'
+        '  "answer_lines": [{"block_id": "q1", "number": "1", "line_type": "fill_blank", "plain_text": "I am a student.", "segments": [{"text": "I ", "role": "given"}, {"text": "am", "role": "answer"}, {"text": " a student.", "role": "given"}]}],\n'
+        '  "solution_steps": [],\n'
+        '  "explanation_zh": "be 动词与 I 搭配用 am。",\n'
+        '  "learning_points": [{"block_id": "q1", "term": "am", "explanation_zh": "是", "pronunciation": "/æm/", "category": "word", "label": "vocabulary"}],\n'
+        '  "read_units": [{"block_id": "q1", "unit_type": "text", "label": "answer", "text": "I am a student.", "meaning_zh": "我是一名学生。"}],\n'
+        '  "uncertainty": {"requires_review": false, "confidence": 0.95, "reason": null}\n'
+        "}\n"
+        "注意：plain_text 必须等于 segments 各 text 顺序拼接。上例 \"I \"+\"am\"+\" a student.\" = \"I am a student.\"。\n"
+    ),
+    "liberal_arts": (
+        "结构示例（仅示意，请勿照抄）：\n"
+        "{\n"
+        '  "subject": "liberal_arts",\n'
+        '  "question_meaning_zh": "本图包含1个题目块，古文填空。",\n'
+        '  "question_instruction": {"text": "在横线上填写原句。", "meaning_zh": "默写古文原句。", "confidence": 0.94},\n'
+        '  "question_blocks": [{"block_id": "q1", "title": "第1题", "question_instruction": {"text": "在横线上填写原句。", "meaning_zh": "默写古文原句。", "confidence": 0.94}, "question_meaning_zh": "补全《论语》名句。"}],\n'
+        '  "answer_lines": [{"block_id": "q1", "number": "1", "line_type": "fill_blank", "plain_text": "学而时习之，不亦说乎", "segments": [{"text": "学而时习之，", "role": "given"}, {"text": "不亦说乎", "role": "answer"}]}],\n'
+        '  "solution_steps": [],\n'
+        '  "explanation_zh": "出自《论语》，“说”通“悦”，意为愉快。",\n'
+        '  "learning_points": [{"block_id": "q1", "term": "说", "explanation_zh": "通“悦”，愉快。", "pronunciation": "yuè", "category": "word", "label": "字词"}],\n'
+        '  "read_units": [{"block_id": "q1", "unit_type": "text", "label": "answer", "text": "学而时习之，不亦说乎", "meaning_zh": "学习并经常温习，不也很愉快吗？"}],\n'
+        '  "uncertainty": {"requires_review": false, "confidence": 0.94, "reason": null}\n'
+        "}\n"
+        "注意：古诗文/文言句子在 read_units 用 text 放原文、meaning_zh 放现代汉语翻译。\n"
+    ),
+    "science": (
+        "结构示例（仅示意，请勿照抄）：\n"
+        "{\n"
+        '  "subject": "science",\n'
+        '  "question_meaning_zh": "本图包含1个题目块，求长方形面积。",\n'
+        '  "question_instruction": {"text": "求下面长方形的面积。", "meaning_zh": "计算长方形面积。", "confidence": 0.96},\n'
+        '  "question_blocks": [{"block_id": "q1", "title": "第1题", "question_instruction": {"text": "求下面长方形的面积。", "meaning_zh": "计算面积。", "confidence": 0.96}, "question_meaning_zh": "已知长8cm、宽5cm，求面积。"}],\n'
+        '  "answer_lines": [{"block_id": "q1", "number": "1", "line_type": "calculation", "plain_text": "8 × 5 = 40（平方厘米）", "segments": [{"text": "8 × 5 = ", "role": "given"}, {"text": "40（平方厘米）", "role": "answer"}]}],\n'
+        '  "solution_steps": [{"block_id": "q1", "number": "1", "title": "面积公式", "content_zh": "长方形面积等于长乘宽。", "formula": "S = 长 × 宽", "result": null}, {"block_id": "q1", "number": "2", "title": "代入计算", "content_zh": "把长8、宽5代入公式。", "formula": "8 × 5 = 40", "result": "40 平方厘米"}],\n'
+        '  "explanation_zh": "考查长方形面积公式，注意单位是平方厘米。",\n'
+        '  "learning_points": [{"block_id": "q1", "term": "长方形面积公式", "explanation_zh": "面积 = 长 × 宽。", "pronunciation": null, "category": "formula", "label": "formula"}],\n'
+        '  "read_units": [{"block_id": "q1", "unit_type": "text", "label": "explanation", "text": "长方形面积等于长乘宽。", "meaning_zh": null}],\n'
+        '  "uncertainty": {"requires_review": false, "confidence": 0.96, "reason": null}\n'
+        "}\n"
+    ),
+}
+
+
+@lru_cache(maxsize=8)
+def _compose_subject_prompt(subject: str) -> str:
+    """构建并缓存指定学科的完整提示词。
+
+    结构：学科角色说明 + 共享字段约束/证据原则 + 学科定制推理步骤 +
+    共享字段定义 + 共享通用题型规则 + 学科追加题型强调 + 共享质量/不确定性规则 + 学科示例。
+    subject 仅 4 种取值，使用 lru_cache 避免重复拼接大字符串。
+    """
+    notes = _SUBJECT_NOTES.get(subject, _SUBJECT_NOTES["general"])
+    reasoning = _REASONING_STEPS.get(subject, _REASONING_STEPS["general"])
+    type_notes = _SUBJECT_TYPE_NOTES.get(subject, "")
+    example = _SUBJECT_EXAMPLES.get(subject, _SUBJECT_EXAMPLES["general"])
+    type_notes_block = ("\n" + type_notes) if type_notes else ""
+    return (
+        notes
+        + "\n"
+        "\n"
+        "必须严格遵守：\n"
+        "1) 只输出一个 JSON 对象，不要 markdown，不要代码块，不要任何额外文字。\n"
+        "2) 只允许以下字段：subject, question_meaning_zh, question_instruction, question_blocks, "
+        "answer_lines, solution_steps, explanation_zh, learning_points, read_units, uncertainty。\n"
+        "3) 字段必须齐全，不能缺失，不能新增字段；不要输出 reference_answer。\n"
+        f"4) subject 必须固定输出为 \"{subject}\"。\n"
+        "5) solution_steps 是数组，元素字段：block_id, number, title, content_zh, formula, result。\n"
+        "6) learning_points 是数组，元素字段：block_id, term, explanation_zh, pronunciation, category, label。\n"
+        "category 只能是 word, concept, formula, unit, method, other；语法点用 concept，短语/拼音/自然拼读用 word，细分类写入 label。\n"
+        "7) read_units 是数组，元素字段：block_id, unit_type, label, text, meaning_zh。unit_type 只能是 word 或 text；"
+        "题目要求、句子、段落、答案、讲解都用 text，细分类写入 label。\n"
+        "8) uncertainty 字段：requires_review(boolean), confidence(0到1), reason(可空字符串)。\n"
+        "9) question_meaning_zh 用中文概括整张图里的练习内容。如果有多个题目块，要说明包含几个题目块。\n"
+        "10) question_instruction 字段用于提取整张图最上层或共同的题目要求原文，字段为："
+        "text, meaning_zh, confidence。\n"
+        "11) question_blocks 字段用于区分同一张图片里的多个独立题目块，字段为："
+        "block_id, title, question_instruction, question_meaning_zh。\n"
+        "\n"
+        "证据原则：\n"
+        "- 你会收到题目图片附件，必须以图片中的题干、图片、编号、空格、选项、例句为主要依据。\n"
+        "- 如果视觉内容、题干文字和你的常识发生冲突，以图片和题干为准。\n"
+        "- 不要补充图片中不存在的题目。\n"
+        "- 看不清、被遮挡、裁切缺失时，不要强行编造答案，应降低 confidence 并说明原因。\n"
+        "\n"
+        "在输出 JSON 前，请在内部完成这些步骤，但不要展示过程：\n"
+        + reasoning
+        + "\n"
+        "question_blocks 是题目块列表。每个元素代表图片中的一个独立题目块，字段为：\n"
+        "- block_id: 稳定 ID，只能用 q1, q2, q3...，按图片阅读顺序编号。\n"
+        "- title: 题目块标题，可用图片中的大题编号/标题；没有标题时用 第1题、第2题。\n"
+        "- question_instruction: 该题目块的题目要求原句和中文解释。\n"
+        "- question_meaning_zh: 该题目块要孩子或学习者做什么。\n"
+        "\n"
+        "answer_lines 是参考答案区的唯一数据源。每个元素代表一行答案，字段为：\n"
+        "- block_id: 所属 question_blocks[].block_id，必须能对应到某个题目块。\n"
+        "- number: 题号，字符串或 null，支持 1、A、1a 等。\n"
+        "- line_type: 只能是 fill_blank, choice, picture_word, matching, sentence_ordering, "
+        "reading_qa, translation, correction, copying, calculation, proof, short_answer, composition, pinyin, other。\n"
+        "- plain_text: 完整答案文本，不含题号，用于整行朗读。\n"
+        "- segments: 数组，至少一个元素；元素字段 text 和 role。\n"
+        "\n"
+        "question_instruction 规则：\n"
+        "- text 必须尽量提取图片中原始题目要求，保持原文格式。\n"
+        "- meaning_zh 是该题目要求的中文解释。\n"
+        "- confidence 表示原文识别置信度，清晰可靠 0.9-1.0；部分遮挡/模糊则降低。\n"
+        "- 如果图片里没有可见题目要求，text 和 meaning_zh 用空字符串，confidence=0，"
+        "并在 uncertainty 中说明。\n"
+        "- 如果图片中有多个独立题目要求，顶层 question_instruction 使用最上方共同要求；"
+        "各题目块自己的题目要求必须放入 question_blocks[].question_instruction。\n"
+        "\n"
+        "segments.role 只能是：\n"
+        "- given: 题目原本已有的文字。\n"
+        "- answer: 学生需要填写、选择或生成的答案。\n"
+        "- connector: 连接符号，如箭头、短横线、冒号。\n"
+        "- correction: 改错题中订正后的正确内容。\n"
+        "\n"
+        "通用题型规则（所有学科通用，选择题和填空题各学科都可能出现）：\n"
+        "- 填空、补全句子、看图填空：plain_text 必须是补全后的完整句子或完整短语，不允许只输出填空词；"
+        "segments 中题目已有文字标为 given，填入答案标为 answer。\n"
+        "- 选择题：选项字母和选中内容标为 answer。\n"
+        "- 看图写词/短语：答案整体标为 answer。\n"
+        "- 连线/匹配：题目已有内容可标为 given，配对关系或选中编号标为 answer。\n"
+        "- 排序/连词成句：最终正确句整体标为 answer。\n"
+        "- 阅读问答：回答整体标为 answer。\n"
+        "- 改错题：未改部分标为 given，订正内容标为 correction。\n"
+        "- 抄写题：照抄内容可标为 given，讲解中说明照抄即可。\n"
+        + type_notes_block
+        + "\n"
+        "一致性硬约束（务必遵守）：\n"
+        "- plain_text 必须严格等于 segments 中各 text 字段按顺序拼接的结果，只允许去除整行首尾空白；"
+        "不得出现 plain_text 与 segments 内容不一致。这样可保证朗读文本与高亮内容完全一致。\n"
+        "\n"
+        "输出质量规则：\n"
+        "- 若图片中有多个题目块，必须先按题目块顺序输出 question_blocks，再按题目块顺序输出 answer_lines。\n"
+        "- 若题目含编号，请按检测到的编号顺序给出 answer_lines；若无编号，请按题面阅读顺序组织。\n"
+        "- 同一张图中两个相关题目不能混成一个题目块；例如第一题先补全单词、第二题再用这些词补句子，"
+        "必须输出 q1 和 q2 两个 question_blocks。\n"
+        "- learning_points 只收录有助于理解题目、答案或易错点的知识点，不要硬凑；label 可写 grammar, phrase, pinyin, phonics 等自由标签。\n"
+        "- read_units 只收录适合 Android TTS 朗读的自然语言；复杂数学公式不要强行放入；label 可写 instruction, answer, explanation 等自由标签。\n"
+        "- read_units 应尽量包含题目要求和答案解释中适合朗读的内容。\n"
+        "- 如果某个答案不确定，仍按编号保留位置，并在 uncertainty 中说明。\n"
+        "\n"
+        "不确定性规则：\n"
+        "- 图片模糊、裁切、遮挡、编号不完整、选项看不清、答案依赖外部上下文时，requires_review=true。\n"
+        "- confidence 取值：清晰可靠 0.9-1.0；轻微歧义 0.7-0.89；明显推测 0.4-0.69；无法可靠作答 0-0.39。\n"
+        "\n"
+        + example
+    )
+
+
 class ParsePipeline:
     """Simplified parse pipeline.
 
@@ -50,129 +316,7 @@ class ParsePipeline:
         self.schema_guard = ResponseSchemaGuard()
 
     def _build_prompt(self, subject: str) -> str:
-        subject_notes = {
-            "general": (
-                "你是通用作业解析助手。题目可能来自英语、语文、拼音、数学、科学或混合练习。"
-                "先判断题目类型，再按题目块输出答案、必要步骤、中文讲解、知识点和朗读内容。"
-                "不要强行套英语词汇表，也不要强行套数学公式。"
-            ),
-            "english": (
-                "你是英语练习题解析助手，适用于英语作业、练习册、考试题和基础学习题。"
-                "保持当前英语解析能力：完整答案行、题目要求原文、词义、发音、句义和答案词义覆盖。"
-                "learning_points 重点放英文单词、短语、语法点，pronunciation 可放 IPA。"
-                "read_units 放题目要求、答案句、需要点读的单词或短句。"
-            ),
-            "liberal_arts": (
-                "你是文科作业解析助手，覆盖语文、拼音、道法、历史、地理等。"
-                "重点识别题目要求、材料、问题、选项和答题依据。"
-                "阅读理解和材料题必须说明答案依据。"
-                "拼音题要把拼音放入 learning_points.pronunciation。"
-                "作文或开放题给出可参考答案和审题提示，不编造唯一标准答案。"
-            ),
-            "science": (
-                "你是理科作业解析助手，覆盖数学、科学、物理、化学等。"
-                "必须提取已知条件、要求的问题、关键公式或方法。"
-                "solution_steps 必须清楚展示列式、推理或计算过程。"
-                "answer_lines 放最终答案或需要填写的关键内容。"
-                "单位、公式、易错概念进入 learning_points。复杂公式不要强行放入 read_units。"
-            ),
-        }
-        return (
-            subject_notes.get(subject, subject_notes["general"])
-            + "\n"
-            "\n"
-            "必须严格遵守：\n"
-            "1) 只输出一个 JSON 对象，不要 markdown，不要代码块，不要任何额外文字。\n"
-            "2) 只允许以下字段：subject, question_meaning_zh, question_instruction, question_blocks, "
-            "answer_lines, solution_steps, explanation_zh, learning_points, read_units, uncertainty。\n"
-            "3) 字段必须齐全，不能缺失，不能新增字段；不要输出 reference_answer。\n"
-            f"4) subject 必须固定输出为 \"{subject}\"。\n"
-            "5) solution_steps 是数组，元素字段：block_id, number, title, content_zh, formula, result。\n"
-            "6) learning_points 是数组，元素字段：block_id, term, explanation_zh, pronunciation, category, label。\n"
-            "category 只能是 word, concept, formula, unit, method, other；语法点用 concept，短语/拼音/自然拼读用 word，细分类写入 label。\n"
-            "7) read_units 是数组，元素字段：block_id, unit_type, label, text, meaning_zh。unit_type 只能是 word 或 text；"
-            "题目要求、句子、段落、答案、讲解都用 text，细分类写入 label。\n"
-            "8) uncertainty 字段：requires_review(boolean), confidence(0到1), reason(可空字符串)。\n"
-            "9) question_meaning_zh 用中文概括整张图里的练习内容。如果有多个题目块，要说明包含几个题目块。\n"
-            "10) question_instruction 字段用于提取整张图最上层或共同的题目要求原文，字段为："
-            "text, meaning_zh, confidence。\n"
-            "11) question_blocks 字段用于区分同一张图片里的多个独立题目块，字段为："
-            "block_id, title, question_instruction, question_meaning_zh。\n"
-            "\n"
-            "证据原则：\n"
-            "- 你会收到题目图片附件，必须以图片中的题干、图片、编号、空格、选项、例句为主要依据。\n"
-            "- 如果视觉内容、题干文字和你的常识发生冲突，以图片和题干为准。\n"
-            "- 不要补充图片中不存在的题目。\n"
-            "- 看不清、被遮挡、裁切缺失时，不要强行编造答案，应降低 confidence 并说明原因。\n"
-            "\n"
-            "在输出 JSON 前，请在内部完成这些步骤，但不要展示过程：\n"
-            "A. 先判断图片里有几个独立题目块：看大题编号、标题、题目要求行、分隔线、版面分区、例题和编号重启。\n"
-            "B. 即使两个题目块共享图片、词库、例句或上下文，只要作答要求不同、编号体系不同、版面分区不同，"
-            "也必须拆成不同 question_blocks。\n"
-            "C. 为每个题目块判断题型：填空、选择、连线/匹配、排序、阅读理解、句子补全、翻译、抄写、改错、计算、证明、拼音、作文等。\n"
-            "D. 为每个题目块找出题目要求：需要写单词、短语、完整句子，还是选择编号。\n"
-            "E. 识别所有编号、空格、选项和例句，确认每个题目块的答案数量。\n"
-            "F. 按题型推导答案。\n"
-            "G. 检查答案是否符合图片、题干、语法和常见英语表达。\n"
-            "\n"
-            "question_blocks 是题目块列表。每个元素代表图片中的一个独立题目块，字段为：\n"
-            "- block_id: 稳定 ID，只能用 q1, q2, q3...，按图片阅读顺序编号。\n"
-            "- title: 题目块标题，可用图片中的大题编号/标题；没有标题时用 第1题、第2题。\n"
-            "- question_instruction: 该题目块的英文题目要求原句和中文解释。\n"
-            "- question_meaning_zh: 该题目块要孩子或学习者做什么。\n"
-            "\n"
-            "answer_lines 是参考答案区的唯一数据源。每个元素代表一行答案，字段为：\n"
-            "- block_id: 所属 question_blocks[].block_id，必须能对应到某个题目块。\n"
-            "- number: 题号，字符串或 null，支持 1、A、1a 等。\n"
-            "- line_type: 只能是 fill_blank, choice, picture_word, matching, sentence_ordering, "
-            "reading_qa, translation, correction, copying, calculation, proof, short_answer, composition, pinyin, other。\n"
-            "- plain_text: 完整答案文本，不含题号，用于整行朗读。\n"
-            "- segments: 数组，至少一个元素；元素字段 text 和 role。\n"
-            "\n"
-            "question_instruction 规则：\n"
-            "- text 必须尽量提取图片中原始题目要求，保持原文格式。\n"
-            "- meaning_zh 是该题目要求的中文解释。\n"
-            "- confidence 表示原文识别置信度，清晰可靠 0.9-1.0；部分遮挡/模糊则降低。\n"
-            "- 如果图片里没有可见题目要求，text 和 meaning_zh 用空字符串，confidence=0，"
-            "并在 uncertainty 中说明。\n"
-            "- 如果图片中有多个独立题目要求，顶层 question_instruction 使用最上方共同要求；"
-            "各题目块自己的题目要求必须放入 question_blocks[].question_instruction。\n"
-            "\n"
-            "segments.role 只能是：\n"
-            "- given: 题目原本已有的文字。\n"
-            "- answer: 学生需要填写、选择或生成的答案。\n"
-            "- connector: 连接符号，如箭头、短横线、冒号。\n"
-            "- correction: 改错题中订正后的正确内容。\n"
-            "\n"
-            "题型规则：\n"
-            "- 填空、补全句子、看图填空：plain_text 必须是补全后的完整句子或完整短语，不允许只输出填空词；"
-            "segments 中题目已有文字标为 given，填入答案标为 answer。\n"
-            "- 选择题：选项字母和选中内容标为 answer。\n"
-            "- 看图写词/短语：答案整体标为 answer。\n"
-            "- 连线/匹配：题目已有内容可标为 given，配对关系或选中编号标为 answer。\n"
-            "- 排序/连词成句：最终正确句整体标为 answer。\n"
-            "- 阅读问答/翻译：回答或译文整体标为 answer。\n"
-            "- 改错题：未改部分标为 given，订正内容标为 correction。\n"
-            "- 抄写题：照抄内容可标为 given，讲解中说明照抄即可。\n"
-            "- 计算/理科题：answer_lines 放最终答案或关键列式，solution_steps 放主要步骤。\n"
-            "- 拼音题：answer_lines 放完整答案，learning_points 放字词、拼音和解释。\n"
-            "- 作文/开放题：answer_lines 放参考提纲或参考答案，explanation_zh 说明审题要点，不编造唯一答案。\n"
-            "\n"
-            "输出质量规则：\n"
-            "- 若图片中有多个题目块，必须先按题目块顺序输出 question_blocks，再按题目块顺序输出 answer_lines。\n"
-            "- 若题目含编号，请按检测到的编号顺序给出 answer_lines；若无编号，请按题面阅读顺序组织。\n"
-            "- 同一张图中两个相关题目不能混成一个题目块；例如第一题先补全单词、第二题再用这些词补句子，"
-            "必须输出 q1 和 q2 两个 question_blocks。\n"
-            "- learning_points 只收录有助于理解题目、答案或易错点的知识点，不要硬凑；label 可写 grammar, phrase, pinyin, phonics 等自由标签。\n"
-            "- read_units 只收录适合 Android TTS 朗读的自然语言；复杂数学公式不要强行放入；label 可写 instruction, answer, explanation 等自由标签。\n"
-            "- read_units 应尽量包含题目要求和答案解释中适合朗读的内容。\n"
-            "- subject=science 时，除非题目无需步骤，否则 solution_steps 至少 1 项。\n"
-            "- 如果某个答案不确定，仍按编号保留位置，并在 uncertainty 中说明。\n"
-            "\n"
-            "不确定性规则：\n"
-            "- 图片模糊、裁切、遮挡、编号不完整、选项看不清、答案依赖外部上下文时，requires_review=true。\n"
-            "- confidence 取值：清晰可靠 0.9-1.0；轻微歧义 0.7-0.89；明显推测 0.4-0.69；无法可靠作答 0-0.39。\n"
-        )
+        return _compose_subject_prompt(subject)
 
     def _normalize_candidate(self, candidate: Any) -> Any:
         if not isinstance(candidate, dict):
@@ -200,6 +344,18 @@ class ParsePipeline:
                 normalized_blocks.append(normalized_block)
             out["question_blocks"] = normalized_blocks
 
+        # 已知题目块 ID，用于 answer_lines / solution_steps 缺失 block_id 时兜底，
+        # 避免本可成立的结果因引用缺失而触发额外的修复模型调用。
+        known_block_ids: list[str] = []
+        qb = out.get("question_blocks")
+        if isinstance(qb, list):
+            for block in qb:
+                if isinstance(block, dict):
+                    bid = str(block.get("block_id") or "").strip()
+                    if bid:
+                        known_block_ids.append(bid)
+        fallback_block_id = known_block_ids[0] if known_block_ids else "q1"
+
         lines = out.get("answer_lines")
         if isinstance(lines, list):
             normalized_lines: list[Any] = []
@@ -208,19 +364,33 @@ class ParsePipeline:
                     normalized_lines.append(line)
                     continue
                 normalized_line = dict(line)
-                normalized_line["block_id"] = str(
-                    normalized_line.get("block_id") or ""
-                ).strip()
+                block_id = str(normalized_line.get("block_id") or "").strip()
+                # block_id 缺失或无法对应已知题目块时，兜底到首个题目块。
+                if not block_id or (known_block_ids and block_id not in known_block_ids):
+                    block_id = fallback_block_id
+                normalized_line["block_id"] = block_id
                 if normalized_line.get("number") is not None:
                     normalized_line["number"] = str(normalized_line["number"]).strip()
+
                 segments = normalized_line.get("segments")
-                if not segments and str(normalized_line.get("plain_text", "")).strip():
-                    normalized_line["segments"] = [
-                        {
-                            "text": str(normalized_line["plain_text"]).strip(),
-                            "role": "answer",
-                        }
-                    ]
+                plain_text = str(normalized_line.get("plain_text") or "").strip()
+                # segments 缺失但有 plain_text：用 plain_text 兜底成单段。
+                if not segments and plain_text:
+                    segments = [{"text": plain_text, "role": "answer"}]
+                    normalized_line["segments"] = segments
+
+                # 一致性：plain_text 必须等于 segments 文本顺序拼接（仅去首尾空白）。
+                # segments 是前端高亮与朗读的结构来源，二者不一致时以 segments 为准，
+                # 保证朗读文本与展示内容完全一致。
+                if isinstance(segments, list) and segments:
+                    concat = "".join(
+                        str(seg.get("text", ""))
+                        for seg in segments
+                        if isinstance(seg, dict)
+                    ).strip()
+                    if concat and concat != plain_text:
+                        normalized_line["plain_text"] = concat
+
                 normalized_lines.append(normalized_line)
             out["answer_lines"] = normalized_lines
 
@@ -232,7 +402,12 @@ class ParsePipeline:
                     normalized_steps.append(step)
                     continue
                 normalized_step = dict(step)
-                normalized_step["block_id"] = str(normalized_step.get("block_id") or "").strip()
+                step_block_id = str(normalized_step.get("block_id") or "").strip()
+                if not step_block_id or (
+                    known_block_ids and step_block_id not in known_block_ids
+                ):
+                    step_block_id = fallback_block_id
+                normalized_step["block_id"] = step_block_id
                 normalized_step["number"] = str(normalized_step.get("number") or "").strip()
                 normalized_steps.append(normalized_step)
             out["solution_steps"] = normalized_steps
@@ -296,6 +471,20 @@ class ParsePipeline:
                     )
                 normalized_units.append(normalized_unit)
             out["read_units"] = normalized_units
+
+        # 补全缺失的可选字段，使其满足 schema guard 的严格字段集校验，
+        # 避免"模型只是漏了某个可选字段"也要多调一次修复模型。
+        out.setdefault("solution_steps", [])
+        out.setdefault("learning_points", [])
+        out.setdefault("read_units", [])
+        out.setdefault(
+            "question_instruction",
+            {"text": "", "meaning_zh": "", "confidence": 0.0},
+        )
+        out.setdefault(
+            "uncertainty",
+            {"requires_review": False, "confidence": 0.8, "reason": None},
+        )
         return out
 
     def _normalize_word(self, raw: str) -> str:
