@@ -160,7 +160,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["block_id", "term", "explanation_zh", "pronunciation", "category", "label"],
+        "required": ["block_id", "term", "explanation_zh", "pronunciation", "category"],
         "properties": {
           "block_id": {
             "type": ["string", "null"]
@@ -191,7 +191,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["block_id", "unit_type", "label", "text", "meaning_zh"],
+        "required": ["block_id", "unit_type", "text", "meaning_zh"],
         "properties": {
           "block_id": {
             "type": ["string", "null"]

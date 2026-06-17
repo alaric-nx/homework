@@ -120,13 +120,13 @@
 - 状态：已完成
 - 优先级：高
 - 完成比例：100%
-- 已完成子项 / 总子项：11 / 11
+- 已完成子项 / 总子项：15 / 15
 - 负责人：Codex
 - 计划开始：2026-06-16
 - 计划完成：2026-06-16
 - 实际完成：2026-06-16
 - 最后更新时间：2026-06-16
-- 备注：已完成 `subject` 参数、JSON v3 schema、四类提示词、缓存按学科区分和英语词义补全迁移；`python -m pytest -q` 已通过。
+- 备注：已完成 `subject` 参数、JSON v3 schema、四类提示词、缓存按学科区分和英语词义补全迁移；review 后收紧 `answer_lines` 正式契约、block 引用归一化和 LLM 配置路径。
 
 子项：
 
@@ -141,3 +141,7 @@
 - [x] 更新任务缓存 schema 版本并清理旧缓存
 - [x] 缓存复用按 `subject` 区分
 - [x] 更新接口文档和错误码说明
+- [x] 明确 `answer_lines` 不能被 `solution_steps` 替代
+- [x] 多题块未知 `block_id` 不再静默归并到第一个题目块
+- [x] `plain_text` 与 `segments` 不一致时保留完整答案
+- [x] LLM 配置优先读取仓库内 `backend/.config/llm.json`

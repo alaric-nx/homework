@@ -96,12 +96,14 @@ POST /v1/homework/parse?subject=<general|english|liberal_arts|science>
 - `term`：词语、拼音、概念、公式、单位或知识点。
 - `explanation_zh`：中文解释。
 - `pronunciation`：拼音、读音、音标或其他读法，可为空。
-- `category`：`word`、`pinyin`、`concept`、`formula`、`unit`、`method`、`other`。
+- `category`：`word`、`concept`、`formula`、`unit`、`method`、`other`。
+- `label`：自由细分类，可为空；如 `grammar`、`phrase`、`pinyin`、`phonics`。
 
 `read_units[]` 目标字段：
 
 - `block_id`：所属题目块 ID，可为空。
-- `unit_type`：`word`、`sentence`、`paragraph`、`answer`、`explanation`。
+- `unit_type`：`word`、`text`。
+- `label`：自由细分类，可为空；如 `instruction`、`answer`、`explanation`。
 - `text`：可朗读文本。
 - `meaning_zh`：中文解释或翻译，可为空。
 
@@ -112,6 +114,7 @@ POST /v1/homework/parse?subject=<general|english|liberal_arts|science>
 - 顶层只允许 JSON v3 正式字段，不允许额外字段。
 - 所有数组字段必须存在；没有内容时使用空数组。
 - `question_blocks` 和 `answer_lines` 至少 1 项。
+- `answer_lines` 是参考答案区正式契约；`solution_steps` 是过程展示，不能替代 `answer_lines`。
 - `subject` 必须等于请求传入的 subject。
 - 后端在 schema 校验后再次检查 `result.subject == request.subject`；不匹配时任务失败，不返回错学科结果。
 - `uncertainty.requires_review=true` 时必须提供 `reason`。
@@ -249,6 +252,8 @@ POST /v1/homework/parse?subject=<general|english|liberal_arts|science>
 - 不扫描英文单词做强制词义补全。
 - 不因缺少 `learning_points` 自动二次调用模型。
 - 只做 schema 校验和 block 引用一致性校验。
+- 单题块结果中缺失 `answer_lines[].block_id` 或 `solution_steps[].block_id` 时可归一化到唯一题目块。
+- 多题块结果中未知或缺失 block 引用不自动合并到第一个题目块；应触发 schema 失败或 JSON 契约修复。
 
 ## 提示词模板
 
@@ -259,6 +264,7 @@ POST /v1/homework/parse?subject=<general|english|liberal_arts|science>
 字段必须严格符合 JSON v3。
 必须先识别题目块 question_blocks，再输出 answer_lines 和其他字段。
 answer_lines、solution_steps、learning_points、read_units 中的 block_id 必须能对应 question_blocks。
+answer_lines 至少 1 项；理科题也必须输出最终答案或关键填写内容，solution_steps 不能替代 answer_lines。
 看不清、缺页、遮挡或需要外部上下文时，设置 uncertainty.requires_review=true 并说明原因。
 不要编造图片中不存在的题目。
 ```
@@ -391,6 +397,7 @@ JSON v3 是当前已实现契约；前后端已同步更新 Pydantic 模型、JS
 - `plain_text`：完整答案文本，不含题号，用于整行 TTS 和纯文本展示。
 - `segments`：前端彩色渲染片段，至少 1 个。
 - `learning_points` 与 `read_units` 需要覆盖英语完整答案行里的可点读英文词，避免前端出现有发音但缺少词义来源的情况。
+- 若 `plain_text` 与 `segments` 拼接结果不一致，后端保留 `plain_text` 并将 `segments` 重建为单个 `answer` 段，避免改坏完整答案。
 
 `segments[].role` 只能是：
 

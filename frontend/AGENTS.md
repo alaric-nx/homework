@@ -150,6 +150,8 @@ GET /v1/homework/tasks/{task_id}
 
 - `learning_points` 展示标题使用 `知识点`，不再使用英语限定的 `词汇`。
 - `read_units` 用于朗读入口；数学公式不强制朗读。
+- `answer_lines` 是参考答案区正式数据源；`solution_steps` 只展示解题过程，不能替代参考答案行。
+- 任务完成结果必须包含 `subject`、`question_blocks` 和非空 `answer_lines`；否则前端标记任务失败。
 - 知识点头部使用可换行布局，长公式、长概念或长拼音不能挤出屏幕。
 - `solution_steps` 在参考答案后、讲解前展示，理科题重点展示。
 - 旧 v2 字段 `key_vocabulary`、`speak_units` 已在 v3 中被 `learning_points`、`read_units` 替换。
@@ -223,6 +225,7 @@ data class ReadUnit(
 前端按 `question_blocks` 分组展示参考答案。每个 `question_blocks[]` 渲染为一个独立题目块卡片，卡片内展示该题目块的英文要求、中文解释、中文理解和所属答案行。
 
 `answer_lines[].block_id` 必须对应某个 `question_blocks[].block_id`。
+如果后端只返回 `solution_steps` 而没有 `answer_lines`，前端不把步骤伪装成参考答案，应视为接口契约错误。
 
 每行字段：
 

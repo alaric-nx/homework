@@ -253,6 +253,7 @@ def _compose_subject_prompt(subject: str) -> str:
         "reading_qa, translation, correction, copying, calculation, proof, short_answer, composition, pinyin, other。\n"
         "- plain_text: 完整答案文本，不含题号，用于整行朗读。\n"
         "- segments: 数组，至少一个元素；元素字段 text 和 role。\n"
+        "- answer_lines 必须至少 1 项。理科题也必须输出最终答案或关键填写内容；solution_steps 只表示过程，不能替代 answer_lines。\n"
         "\n"
         "question_instruction 规则：\n"
         "- text 必须尽量提取图片中原始题目要求，保持原文格式。\n"
@@ -287,6 +288,7 @@ def _compose_subject_prompt(subject: str) -> str:
         "\n"
         "输出质量规则：\n"
         "- 若图片中有多个题目块，必须先按题目块顺序输出 question_blocks，再按题目块顺序输出 answer_lines。\n"
+        "- answer_lines 与 solution_steps 的 block_id 必须对应 question_blocks；不确定归属时应保留独立题目块并设置 uncertainty，不要把多题内容合并到第一个题目块。\n"
         "- 若题目含编号，请按检测到的编号顺序给出 answer_lines；若无编号，请按题面阅读顺序组织。\n"
         "- 同一张图中两个相关题目不能混成一个题目块；例如第一题先补全单词、第二题再用这些词补句子，"
         "必须输出 q1 和 q2 两个 question_blocks。\n"
@@ -354,7 +356,7 @@ class ParsePipeline:
                     bid = str(block.get("block_id") or "").strip()
                     if bid:
                         known_block_ids.append(bid)
-        fallback_block_id = known_block_ids[0] if known_block_ids else "q1"
+        fallback_block_id = known_block_ids[0] if len(known_block_ids) == 1 else ""
 
         lines = out.get("answer_lines")
         if isinstance(lines, list):
@@ -365,8 +367,8 @@ class ParsePipeline:
                     continue
                 normalized_line = dict(line)
                 block_id = str(normalized_line.get("block_id") or "").strip()
-                # block_id 缺失或无法对应已知题目块时，兜底到首个题目块。
-                if not block_id or (known_block_ids and block_id not in known_block_ids):
+                # 单题时允许补齐 block_id；多题场景保留原值，让 schema guard 暴露归属错误。
+                if (not block_id) and fallback_block_id:
                     block_id = fallback_block_id
                 normalized_line["block_id"] = block_id
                 if normalized_line.get("number") is not None:
@@ -380,8 +382,8 @@ class ParsePipeline:
                     normalized_line["segments"] = segments
 
                 # 一致性：plain_text 必须等于 segments 文本顺序拼接（仅去首尾空白）。
-                # segments 是前端高亮与朗读的结构来源，二者不一致时以 segments 为准，
-                # 保证朗读文本与展示内容完全一致。
+                # 如果模型给出的 segments 与 plain_text 不一致，保留 plain_text 并重建单段，
+                # 避免把完整答案改坏。
                 if isinstance(segments, list) and segments:
                     concat = "".join(
                         str(seg.get("text", ""))
@@ -389,7 +391,9 @@ class ParsePipeline:
                         if isinstance(seg, dict)
                     ).strip()
                     if concat and concat != plain_text:
-                        normalized_line["plain_text"] = concat
+                        normalized_line["segments"] = [
+                            {"text": plain_text or concat, "role": "answer"}
+                        ]
 
                 normalized_lines.append(normalized_line)
             out["answer_lines"] = normalized_lines
@@ -403,9 +407,7 @@ class ParsePipeline:
                     continue
                 normalized_step = dict(step)
                 step_block_id = str(normalized_step.get("block_id") or "").strip()
-                if not step_block_id or (
-                    known_block_ids and step_block_id not in known_block_ids
-                ):
+                if (not step_block_id) and fallback_block_id:
                     step_block_id = fallback_block_id
                 normalized_step["block_id"] = step_block_id
                 normalized_step["number"] = str(normalized_step.get("number") or "").strip()

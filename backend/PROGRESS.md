@@ -2,6 +2,10 @@
 
 ## 最近更新
 
+- 时间：2026-06-17
+- 更新类型：阶段完成
+- 摘要：完成 review 收敛优化：保持 `answer_lines` 作为正式答案契约，收紧多题块 `block_id` 归一化，保留完整 `plain_text`，并修复 LLM 配置路径优先读取仓库内 `backend/.config/llm.json`。
+
 - 时间：2026-06-16
 - 更新类型：阶段完成
 - 摘要：完成 review 优化：后端强校验响应 `subject` 必须匹配请求学科，并补充 subject mismatch 回归测试。
@@ -115,3 +119,23 @@
 下一步：
 
 - 使用真实题图联调四类学科输出质量。
+
+### 2026-06-17
+
+完成内容：
+
+- 明确 `answer_lines` 仍是参考答案区正式契约，`solution_steps` 只展示过程，不能替代答案行。
+- 提示词补充理科也必须输出最终答案或关键填写内容到 `answer_lines`。
+- 后端归一化只在单题块场景补齐缺失 block 引用；多题块未知 `block_id` 不再静默归并到 `q1`。
+- `plain_text` 与 `segments` 不一致时，后端保留完整 `plain_text` 并重建单段 `segments`，避免改坏答案。
+- JSON schema 与 Pydantic 对齐：`learning_points[].label` 和 `read_units[].label` 为可选细分类。
+- LLM 配置优先读取仓库内 `backend/.config/llm.json`，避免不同启动目录导致配置丢失。
+- 补充后端回归测试覆盖 block 引用归一化和 `plain_text` / `segments` 不一致场景。
+
+阻塞项：
+
+- 无。
+
+下一步：
+
+- 使用真实题图验证多题块归属和理科答案行质量。

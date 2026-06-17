@@ -105,6 +105,123 @@ def test_normalize_candidate_maps_model_enum_aliases() -> None:
     assert out["read_units"][1]["label"] == "text"
 
 
+def test_normalize_candidate_only_fills_missing_block_id_for_single_block() -> None:
+    pipeline = ParsePipeline.__new__(ParsePipeline)
+    candidate = {
+        "question_blocks": [
+            {
+                "block_id": "q1",
+                "title": "第1题",
+                "question_instruction": {
+                    "text": "Solve.",
+                    "meaning_zh": "解题。",
+                    "confidence": 0.95,
+                },
+                "question_meaning_zh": "完成题目。",
+            }
+        ],
+        "answer_lines": [
+            {
+                "block_id": "",
+                "number": "1",
+                "line_type": "short_answer",
+                "plain_text": "42",
+                "segments": [{"text": "42", "role": "answer"}],
+            }
+        ],
+    }
+
+    out = pipeline._normalize_candidate(candidate)
+
+    assert out["answer_lines"][0]["block_id"] == "q1"
+
+
+def test_normalize_candidate_does_not_reassign_unknown_block_id_for_multi_block() -> None:
+    pipeline = ParsePipeline.__new__(ParsePipeline)
+    candidate = {
+        "question_blocks": [
+            {
+                "block_id": "q1",
+                "title": "第1题",
+                "question_instruction": {
+                    "text": "Part A.",
+                    "meaning_zh": "第一题。",
+                    "confidence": 0.95,
+                },
+                "question_meaning_zh": "第一题。",
+            },
+            {
+                "block_id": "q2",
+                "title": "第2题",
+                "question_instruction": {
+                    "text": "Part B.",
+                    "meaning_zh": "第二题。",
+                    "confidence": 0.95,
+                },
+                "question_meaning_zh": "第二题。",
+            },
+        ],
+        "answer_lines": [
+            {
+                "block_id": "q9",
+                "number": "1",
+                "line_type": "short_answer",
+                "plain_text": "42",
+                "segments": [{"text": "42", "role": "answer"}],
+            }
+        ],
+        "solution_steps": [
+            {
+                "block_id": "q9",
+                "number": "1",
+                "title": "计算",
+                "content_zh": "计算过程。",
+                "formula": None,
+                "result": "42",
+            }
+        ],
+    }
+
+    out = pipeline._normalize_candidate(candidate)
+
+    assert out["answer_lines"][0]["block_id"] == "q9"
+    assert out["solution_steps"][0]["block_id"] == "q9"
+
+
+def test_normalize_candidate_preserves_plain_text_when_segments_disagree() -> None:
+    pipeline = ParsePipeline.__new__(ParsePipeline)
+    candidate = {
+        "question_blocks": [
+            {
+                "block_id": "q1",
+                "title": "第1题",
+                "question_instruction": {
+                    "text": "Complete.",
+                    "meaning_zh": "补全。",
+                    "confidence": 0.95,
+                },
+                "question_meaning_zh": "补全句子。",
+            }
+        ],
+        "answer_lines": [
+            {
+                "block_id": "q1",
+                "number": "1",
+                "line_type": "fill_blank",
+                "plain_text": "I am a student.",
+                "segments": [{"text": "am", "role": "answer"}],
+            }
+        ],
+    }
+
+    out = pipeline._normalize_candidate(candidate)
+
+    assert out["answer_lines"][0]["plain_text"] == "I am a student."
+    assert out["answer_lines"][0]["segments"] == [
+        {"text": "I am a student.", "role": "answer"}
+    ]
+
+
 def test_mark_missing_vocabulary_updates_uncertainty() -> None:
     pipeline = ParsePipeline.__new__(ParsePipeline)
     result = HomeworkParseResult.model_validate(

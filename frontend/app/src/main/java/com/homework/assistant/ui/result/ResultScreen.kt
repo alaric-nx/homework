@@ -234,8 +234,7 @@ fun ResultScreen(
     val questionBlocks = remember(result) {
         buildDisplayQuestionBlocks(
             blocks = result?.question_blocks.orEmpty(),
-            answerLines = result?.answer_lines.orEmpty(),
-            solutionSteps = result?.solution_steps.orEmpty()
+            answerLines = result?.answer_lines.orEmpty()
         )
     }
     val vocabResolver = remember(result) {
@@ -1404,14 +1403,9 @@ private fun Modifier.longPressToReadModifier(
 
 private fun buildDisplayQuestionBlocks(
     blocks: List<QuestionBlock>,
-    answerLines: List<ResultAnswerLine>,
-    solutionSteps: List<SolutionStep>
+    answerLines: List<ResultAnswerLine>
 ): List<DisplayQuestionBlock> {
-    val displayLines = if (answerLines.isNotEmpty()) {
-        buildDisplayAnswerLines(answerLines)
-    } else {
-        buildDisplayAnswerLinesFromSolutionSteps(solutionSteps)
-    }
+    val displayLines = buildDisplayAnswerLines(answerLines)
     val linesByBlock = displayLines.groupBy { it.blockId }
     val knownBlockIds = blocks.mapNotNull { it.block_id.trim().takeIf { id -> id.isNotBlank() } }.toSet()
     val result = blocks.mapIndexedNotNull { index, block ->
@@ -1476,26 +1470,6 @@ private fun buildDisplayAnswerLines(answerLines: List<ResultAnswerLine>): List<D
             lineType = line.line_type.trim().lowercase(Locale.US),
             text = text,
             segments = segments
-        )
-    }
-}
-
-private fun buildDisplayAnswerLinesFromSolutionSteps(
-    solutionSteps: List<SolutionStep>
-): List<DisplayAnswerLine> {
-    return solutionSteps.mapIndexedNotNull { index, step ->
-        val text = step.result?.trim()?.takeIf { it.isNotBlank() }
-            ?: step.formula?.trim()?.takeIf { it.isNotBlank() }
-            ?: step.content_zh.trim().takeIf { it.isNotBlank() }
-            ?: return@mapIndexedNotNull null
-
-        DisplayAnswerLine(
-            id = "step-answer-$index",
-            blockId = step.block_id.trim(),
-            number = step.number.trim().takeIf { it.isNotBlank() },
-            lineType = "calculation",
-            text = text,
-            segments = listOf(DisplayAnswerSegment(text = text, role = "answer"))
         )
     }
 }

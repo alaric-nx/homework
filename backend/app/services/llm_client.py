@@ -29,6 +29,7 @@ class LLMClient:
         凭据全部来自配置文件 / 环境变量，源码中不内置任何密钥。
         """
         candidates = [
+            Path(__file__).resolve().parents[3] / ".config" / "llm.json",
             Path.cwd() / ".config" / "llm.json",
             Path.home() / ".config" / "llm" / "config.json",
         ]

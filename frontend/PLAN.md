@@ -116,13 +116,13 @@
 - 状态：已完成
 - 优先级：高
 - 完成比例：100%
-- 已完成子项 / 总子项：12 / 12
+- 已完成子项 / 总子项：14 / 14
 - 负责人：Codex
 - 计划开始：2026-06-16
 - 计划完成：2026-06-16
 - 实际完成：2026-06-16
 - 最后更新时间：2026-06-16
-- 备注：拍题页已支持四学科选择；任务保存并传递 `subject`；结果页展示 `solution_steps`、`learning_points`、`read_units`；debug APK 构建通过。
+- 备注：拍题页已支持四学科选择；任务保存并传递 `subject`；结果页展示 `solution_steps`、`learning_points`、`read_units`；review 后收紧 `answer_lines` 正式契约，debug APK 构建通过。
 
 子项：
 
@@ -138,3 +138,5 @@
 - [x] 任务列表展示学科标签
 - [x] 结果页文案去英语化
 - [x] 更新前端构建验证
+- [x] Worker 校验恢复要求非空 `answer_lines`
+- [x] 结果页不再用 `solution_steps` 伪造参考答案行
