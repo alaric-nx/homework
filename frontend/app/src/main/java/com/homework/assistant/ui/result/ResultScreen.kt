@@ -252,9 +252,6 @@ fun ResultScreen(
     val sentenceTranslationLookup = remember(result) {
         buildSentenceTranslationLookup(result?.read_units.orEmpty())
     }
-    val displayReadUnits = remember(result) {
-        result?.read_units.orEmpty().filter { it.unit_type != "word" }
-    }
     val originalBitmap = remember(originalImagePath) {
         originalImagePath?.let { path ->
             try {
@@ -395,18 +392,6 @@ fun ResultScreen(
                     item { SectionCard(stringResource(R.string.explanation), r.explanation_zh) }
                     if (r.learning_points.isNotEmpty()) {
                         item { LearningPointsCard(r.learning_points, displayPolicy) }
-                    }
-                    if (displayReadUnits.isNotEmpty()) {
-                        item {
-                            ReadUnitsCard(
-                                units = displayReadUnits,
-                                onSpeak = {
-                                    activeTip = null
-                                    activeSentenceTip = null
-                                    ttsManager.speak(it)
-                                }
-                            )
-                        }
                     }
                 }
             }
@@ -772,78 +757,6 @@ private fun LearningPointCategoryPill(category: String, subject: String) {
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
             style = MaterialTheme.typography.labelSmall
         )
-    }
-}
-
-@Composable
-private fun ReadUnitsCard(
-    units: List<ReadUnit>,
-    onSpeak: (String) -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = ResultCardShape,
-        colors = CardDefaults.cardColors(containerColor = CardSurface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        border = BorderStroke(1.dp, CardBorder)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text(
-                stringResource(R.string.read_units),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF174A7C)
-            )
-            units.forEachIndexed { index, unit ->
-                if (index > 0) {
-                    HorizontalDivider(color = Color(0xFFE9EDF3))
-                }
-                ReadUnitRow(unit, onSpeak)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ReadUnitRow(
-    unit: ReadUnit,
-    onSpeak: (String) -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top
-    ) {
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(3.dp)
-        ) {
-            Text(
-                unit.text,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = InkText
-            )
-            unit.meaning_zh?.trim()?.takeIf { it.isNotBlank() }?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF475467)
-                )
-            }
-        }
-        IconButton(
-            onClick = { onSpeak(unit.text) },
-            enabled = unit.text.isNotBlank()
-        ) {
-            Icon(
-                Icons.Default.VolumeUp,
-                contentDescription = stringResource(R.string.pronunciation_voice),
-                tint = Color(0xFF1565C0)
-            )
-        }
     }
 }
 

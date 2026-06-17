@@ -66,11 +66,9 @@
   6. 解题步骤
   7. 讲解
   8. 知识点
-  9. 可朗读内容
 - `solution_steps` 为空时不展示“解题步骤”区。
 - `learning_points` 为空时不展示“知识点”区。
-- `read_units` 为空时不展示“可朗读内容”区。
-- “可朗读内容”区默认只展示 `sentence`、`paragraph`、`answer`、`explanation`；`word` 单元只作为点读词义来源，避免和知识点重复。
+- 结果页不展示独立“可朗读内容”区；`read_units` 仅作为词义、句义和内部朗读辅助数据源。
 
 结果页文案：
 
@@ -149,7 +147,7 @@ GET /v1/homework/tasks/{task_id}
 展示规则：
 
 - `learning_points` 展示标题使用 `知识点`，不再使用英语限定的 `词汇`。
-- `read_units` 用于朗读入口；数学公式不强制朗读。
+- `read_units` 用于词义、句义和内部朗读辅助；不在结果页单独展示。
 - `answer_lines` 是参考答案区正式数据源；`solution_steps` 只展示解题过程，不能替代参考答案行。
 - 任务完成结果必须包含 `subject`、`question_blocks` 和非空 `answer_lines`；否则前端标记任务失败。
 - 知识点头部使用可换行布局，长公式、长概念或长拼音不能挤出屏幕。
