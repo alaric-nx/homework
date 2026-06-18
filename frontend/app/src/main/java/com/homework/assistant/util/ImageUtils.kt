@@ -5,9 +5,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.net.Uri
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
-import kotlin.math.max
 
 /**
  * 图片工具：裁剪区域提取、多图纵向合并
@@ -72,30 +72,42 @@ object ImageUtils {
         return result
     }
 
+    private const val MAX_UPLOAD_BYTES = 2 * 1024 * 1024
+
     /**
-     * 压缩图片：长边限制 maxLongSide，JPEG quality，自动修正 EXIF 旋转
-     * 返回压缩后的 File
+     * 上传图压缩：不缩放像素，只在超过目标大小时逐步降低 JPEG quality。
+     * 作业图优先保留文字清晰度，避免超长截图被按长边压到不可读。
      */
     fun compressForUpload(
         context: Context,
         bitmap: Bitmap,
-        maxLongSide: Int = 1920,
-        quality: Int = 85,
+        maxBytes: Int = MAX_UPLOAD_BYTES,
+        initialQuality: Int = 95,
+        minQuality: Int = 60,
         name: String = "upload_${System.currentTimeMillis()}.jpg"
     ): File {
-        var bmp = bitmap
-        // 缩放
-        val longSide = max(bmp.width, bmp.height)
-        if (longSide > maxLongSide) {
-            val scale = maxLongSide.toFloat() / longSide
-            bmp = Bitmap.createScaledBitmap(
-                bmp,
-                (bmp.width * scale).toInt(),
-                (bmp.height * scale).toInt(),
-                true
-            )
+        val dir = File(context.cacheDir, "images").apply { mkdirs() }
+        val file = File(dir, name)
+
+        var quality = initialQuality.coerceIn(1, 100)
+        val floorQuality = minQuality.coerceIn(1, quality)
+        var encoded = encodeJpeg(bitmap, quality)
+
+        while (encoded.size > maxBytes && quality > floorQuality) {
+            quality = (quality - 5).coerceAtLeast(floorQuality)
+            encoded = encodeJpeg(bitmap, quality)
         }
-        return saveToCacheFile(context, bmp, name, quality)
+
+        FileOutputStream(file).use { out ->
+            out.write(encoded)
+        }
+        return file
+    }
+
+    private fun encodeJpeg(bitmap: Bitmap, quality: Int): ByteArray {
+        val buffer = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, quality, buffer)
+        return buffer.toByteArray()
     }
 
     /**
