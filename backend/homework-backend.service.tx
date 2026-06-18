@@ -1,0 +1,15 @@
+[Unit]
+Description=Homework Backend Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/homework/backend
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/usr/bin/python3 -m uvicorn app.main:app --host 127.0.0.1 --port 3000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
