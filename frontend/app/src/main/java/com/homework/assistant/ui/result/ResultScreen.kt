@@ -28,6 +28,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
@@ -41,6 +44,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -51,12 +56,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -65,11 +72,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.google.gson.Gson
 import com.homework.assistant.HomeworkApplication
 import com.homework.assistant.R
+import com.homework.assistant.data.local.SettingsStore
 import com.homework.assistant.data.model.AnswerItem as ResultAnswerItem
 import com.homework.assistant.data.model.ContentItem as ResultContentItem
 import com.homework.assistant.data.model.LearningPoint
@@ -77,7 +86,10 @@ import com.homework.assistant.data.model.ParseResult
 import com.homework.assistant.data.model.QuestionBlock
 import com.homework.assistant.data.model.SolutionStep
 import com.homework.assistant.data.model.StudentAnswerReview
+import com.homework.assistant.data.model.TaskBlock
 import com.homework.assistant.data.model.subjectLabel
+import com.homework.assistant.data.remote.HomeworkApi
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 private val speakTokenPattern = Regex("""[A-Za-z]+(?:'[A-Za-z]+)?|\d+|[^\w\s]""")
@@ -123,6 +135,13 @@ private data class DisplayQuestionBlock(
     val questionMeaning: String,
     val lines: List<DisplayAnswerLine>,
     val solutionSteps: List<SolutionStep>
+)
+
+private data class CollectionToggleState(
+    val taskBlockId: String? = null,
+    val isWrong: Boolean = false,
+    val isWatched: Boolean = false,
+    val loadingType: String? = null
 )
 
 private data class DisplayAnswerSegment(
@@ -234,18 +253,25 @@ fun ResultScreen(
     val ttsManager = app.ttsManager
     val repo = app.taskRepository
     val gson = remember { Gson() }
+    val scope = rememberCoroutineScope()
+    val settingsStore = remember { SettingsStore(context) }
+    val api = remember { HomeworkApi() }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) { ttsManager.ensureInit(context) }
 
     var result by remember { mutableStateOf<ParseResult?>(null) }
     var originalImagePath by remember { mutableStateOf<String?>(null) }
+    var taskStudentId by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
     var activeTip by remember { mutableStateOf<WordTipTarget?>(null) }
     var activeSentenceTip by remember { mutableStateOf<SentenceTipTarget?>(null) }
+    var collectionStates by remember { mutableStateOf<Map<String, CollectionToggleState>>(emptyMap()) }
 
     LaunchedEffect(taskId) {
         val task = repo.getById(taskId)
         originalImagePath = task?.imagePath
+        taskStudentId = task?.studentId.orEmpty().ifBlank { settingsStore.getCurrentStudentId() }
         if (task != null && task.resultJson != null) {
             result = gson.fromJson(task.resultJson, ParseResult::class.java)
         }
@@ -281,6 +307,143 @@ fun ResultScreen(
         }
     }
 
+    suspend fun ensureCloudTaskBlock(block: DisplayQuestionBlock): Result<TaskBlock> {
+        val token = settingsStore.getAuthToken()
+        val studentId = taskStudentId.ifBlank { settingsStore.getCurrentStudentId() }
+        val parsedResult = result
+        if (token.isBlank()) return Result.failure(IllegalStateException("请先登录"))
+        if (studentId.isBlank()) return Result.failure(IllegalStateException("请先到设置页添加并选择孩子"))
+        if (parsedResult == null) return Result.failure(IllegalStateException("暂无解析结果"))
+
+        val taskResult = api.createNotebookTask(
+            token = token,
+            studentId = studentId,
+            taskId = taskId,
+            subject = parsedResult.subject
+        )
+        val taskError = taskResult.exceptionOrNull()
+        if (taskError != null) return Result.failure(taskError)
+
+        return api.createTaskBlock(
+            token = token,
+            studentId = studentId,
+            taskId = taskId,
+            sourceBlockId = block.blockId,
+            title = block.title,
+            questionText = notebookQuestionText(block),
+            answerText = notebookAnswerText(block),
+            solutionText = notebookSolutionText(block)
+        )
+    }
+
+    fun showMessage(message: String) {
+        scope.launch { snackbarHostState.showSnackbar(message) }
+    }
+
+    fun setCollectionState(blockId: String, updater: (CollectionToggleState) -> CollectionToggleState) {
+        collectionStates = collectionStates.toMutableMap().also { map ->
+            map[blockId] = updater(map[blockId] ?: CollectionToggleState())
+        }
+    }
+
+    fun toggleCollection(block: DisplayQuestionBlock, collectionType: String) {
+        val token = settingsStore.getAuthToken()
+        val studentId = taskStudentId.ifBlank { settingsStore.getCurrentStudentId() }
+        if (token.isBlank()) {
+            showMessage("请先登录")
+            return
+        }
+        if (studentId.isBlank()) {
+            showMessage("请先到设置页添加并选择孩子")
+            return
+        }
+
+        val current = collectionStates[block.blockId] ?: CollectionToggleState()
+        val targetSelected = when (collectionType) {
+            "wrong" -> !current.isWrong
+            "watched" -> !current.isWatched
+            else -> return
+        }
+        setCollectionState(block.blockId) { it.copy(loadingType = collectionType) }
+        scope.launch {
+            val blockResult = ensureCloudTaskBlock(block)
+            val cloudBlock = blockResult.getOrElse {
+                setCollectionState(block.blockId) { state -> state.copy(loadingType = null) }
+                showMessage(it.message ?: "题块同步失败")
+                return@launch
+            }
+            val collectionResult = if (targetSelected) {
+                api.setCollection(
+                    token = token,
+                    studentId = studentId,
+                    blockId = cloudBlock.id,
+                    type = collectionType
+                )
+            } else {
+                api.unsetCollection(
+                    token = token,
+                    studentId = studentId,
+                    blockId = cloudBlock.id,
+                    type = collectionType
+                )
+            }
+            collectionResult
+                .onSuccess {
+                    setCollectionState(block.blockId) { state ->
+                        state.copy(
+                            taskBlockId = cloudBlock.id,
+                            isWrong = if (collectionType == "wrong") targetSelected else cloudBlock.is_wrong_collected,
+                            isWatched = if (collectionType == "watched") targetSelected else cloudBlock.is_watched,
+                            loadingType = null
+                        )
+                    }
+                }
+                .onFailure {
+                    setCollectionState(block.blockId) { state -> state.copy(loadingType = null) }
+                    showMessage(it.message ?: "操作失败")
+                }
+        }
+    }
+
+    LaunchedEffect(taskId, taskStudentId, questionBlocks, result) {
+        val token = settingsStore.getAuthToken()
+        if (token.isBlank() || taskStudentId.isBlank() || result == null || questionBlocks.isEmpty()) return@LaunchedEffect
+        val taskSyncResult = api.createNotebookTask(
+            token = token,
+            studentId = taskStudentId,
+            taskId = taskId,
+            subject = result?.subject ?: "general"
+        )
+        val taskSyncError = taskSyncResult.exceptionOrNull()
+        if (taskSyncError != null) {
+            snackbarHostState.showSnackbar(taskSyncError.message ?: "题块同步失败")
+            return@LaunchedEffect
+        }
+        questionBlocks.forEach { block ->
+            api.createTaskBlock(
+                token = token,
+                studentId = taskStudentId,
+                taskId = taskId,
+                sourceBlockId = block.blockId,
+                title = block.title,
+                questionText = notebookQuestionText(block),
+                answerText = notebookAnswerText(block),
+                solutionText = notebookSolutionText(block)
+            ).onSuccess { cloudBlock ->
+                collectionStates = collectionStates.toMutableMap().also { map ->
+                    map[block.blockId] = CollectionToggleState(
+                        taskBlockId = cloudBlock.id,
+                        isWrong = cloudBlock.is_wrong_collected,
+                        isWatched = cloudBlock.is_watched,
+                        loadingType = null
+                    )
+                }
+            }.onFailure {
+                snackbarHostState.showSnackbar(it.message ?: "题块同步失败")
+            }
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             activeTip = null
@@ -291,6 +454,7 @@ fun ResultScreen(
 
     Scaffold(
         containerColor = PageBackground,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -384,7 +548,9 @@ fun ResultScreen(
                                         activeTip = null
                                         activeSentenceTip = null
                                         ttsManager.speak(it)
-                                    }
+                                    },
+                                    collectionState = collectionStates[block.blockId] ?: CollectionToggleState(),
+                                    onToggleCollection = { type -> toggleCollection(block, type) }
                                 )
                             }
                         }
@@ -415,7 +581,9 @@ private fun QuestionBlockAnswerCard(
     onSentenceTipChange: (SentenceTipTarget?) -> Unit,
     onSpeakInstruction: (String) -> Unit,
     onSpeakLine: (String) -> Unit,
-    onSpeakWord: (String) -> Unit
+    onSpeakWord: (String) -> Unit,
+    collectionState: CollectionToggleState,
+    onToggleCollection: (String) -> Unit
 ) {
     val isAlternate = cardIndex % 2 == 1
     val containerColor = if (isAlternate) AlternateCardSurface else CardSurface
@@ -458,8 +626,29 @@ private fun QuestionBlockAnswerCard(
                         block.title,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF263241)
+                        color = Color(0xFF263241),
+                        modifier = Modifier.weight(1f)
                     )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CollectionToggleButton(
+                            label = "错题",
+                            selected = collectionState.isWrong,
+                            loading = collectionState.loadingType == "wrong",
+                            selectedColor = Color(0xFFD32F2F),
+                            unselectedColor = Color(0xFF667085),
+                            icon = Icons.Default.ErrorOutline,
+                            onClick = { onToggleCollection("wrong") }
+                        )
+                        CollectionToggleButton(
+                            label = "关注",
+                            selected = collectionState.isWatched,
+                            loading = collectionState.loadingType == "watched",
+                            selectedColor = Color(0xFF1565C0),
+                            unselectedColor = Color(0xFF667085),
+                            icon = if (collectionState.isWatched) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                            onClick = { onToggleCollection("watched") }
+                        )
+                    }
                 }
                 if (visibleContentItems.isNotEmpty()) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -521,6 +710,46 @@ private fun QuestionBlockAnswerCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CollectionToggleButton(
+    label: String,
+    selected: Boolean,
+    loading: Boolean,
+    selectedColor: Color,
+    unselectedColor: Color,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    val containerColor = if (selected) selectedColor else Color.White
+    val contentColor = if (selected) Color.White else unselectedColor
+    Button(
+        onClick = onClick,
+        enabled = !loading,
+        shape = RoundedCornerShape(8.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+            disabledContainerColor = containerColor.copy(alpha = 0.72f),
+            disabledContentColor = contentColor.copy(alpha = 0.72f)
+        ),
+        border = BorderStroke(1.dp, if (selected) selectedColor else Color(0xFFD0D5DD)),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+        modifier = Modifier.height(34.dp)
+    ) {
+        if (loading) {
+            CircularProgressIndicator(
+                strokeWidth = 2.dp,
+                color = contentColor,
+                modifier = Modifier.size(16.dp)
+            )
+        } else {
+            Icon(icon, contentDescription = label, modifier = Modifier.size(16.dp))
+        }
+        Spacer(modifier = Modifier.width(5.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium)
     }
 }
 
@@ -1581,6 +1810,41 @@ private fun buildDisplayQuestionBlocks(
         )
     }
     return result
+}
+
+private fun notebookQuestionText(block: DisplayQuestionBlock): String? {
+    return buildList {
+        block.contentItems
+            .sortedWith(compareBy<ResultContentItem> { it.order.takeIf { order -> order > 0 } ?: Int.MAX_VALUE })
+            .map { it.text.trim() }
+            .filter { it.isNotBlank() }
+            .forEach { add(it) }
+        block.questionMeaning.trim().takeIf { it.isNotBlank() }?.let { add(it) }
+    }.joinToString("\n").takeIf { it.isNotBlank() }
+}
+
+private fun notebookAnswerText(block: DisplayQuestionBlock): String? {
+    return block.lines.joinToString("\n") { line ->
+        val prefix = line.number?.trim()?.takeIf { it.isNotBlank() }?.let { "$it. " }.orEmpty()
+        prefix + line.text
+    }.takeIf { it.isNotBlank() }
+}
+
+private fun notebookSolutionText(block: DisplayQuestionBlock): String? {
+    return block.solutionSteps.joinToString("\n") { step ->
+        buildList {
+            val title = step.title.trim()
+            val number = step.number.trim()
+            when {
+                number.isNotBlank() && title.isNotBlank() -> add("$number. $title")
+                title.isNotBlank() -> add(title)
+                number.isNotBlank() -> add(number)
+            }
+            step.content_zh.trim().takeIf { it.isNotBlank() }?.let { add(readableMathText(it)) }
+            step.formula?.trim()?.takeIf { it.isNotBlank() }?.let { add(readableMathText(it)) }
+            step.result?.trim()?.takeIf { it.isNotBlank() }?.let { add("结果：${readableMathText(it)}") }
+        }.joinToString(" ")
+    }.takeIf { it.isNotBlank() }
 }
 
 private fun buildDisplayAnswerLines(

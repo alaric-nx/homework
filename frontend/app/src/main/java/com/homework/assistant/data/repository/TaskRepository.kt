@@ -20,6 +20,8 @@ class TaskRepository(context: Context) {
 
     fun observeAll(): Flow<List<TaskEntity>> = dao.observeAll()
 
+    fun observeByStudent(studentId: String): Flow<List<TaskEntity>> = dao.observeByStudent(studentId)
+
     suspend fun getById(id: String): TaskEntity? = dao.getById(id)
 
     suspend fun insert(task: TaskEntity) {

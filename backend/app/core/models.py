@@ -206,3 +206,65 @@ class TaskStatusResponse(BaseModel):
     result: HomeworkParseResult | None = None
     error_code: str | None = None
     error_message: str | None = None
+
+
+class RegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(min_length=1)
+    password: str = Field(min_length=6)
+
+
+class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    account: str = Field(min_length=1)
+    password: str = Field(min_length=1)
+
+
+class AuthResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str
+    user: dict
+    tenant: dict
+
+
+class MeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    user: dict
+    tenant: dict
+
+
+class CreateStudentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1)
+    nickname: str | None = None
+    grade: str | None = None
+    school: str | None = None
+
+
+class CreateNotebookTaskRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    task_id: str | None = None
+    student_id: str = Field(min_length=1)
+    subject: Literal["general", "english", "liberal_arts", "science"] = "general"
+    status: str = "completed"
+    result: dict = Field(default_factory=dict)
+
+
+class CreateTaskBlockRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    student_id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
+    source_block_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    question_text: str | None = None
+    answer_text: str | None = None
+    solution_text: str | None = None
+    bbox: dict | None = None
+    crop_asset_id: str | None = None
+
+
+class SetCollectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    student_id: str = Field(min_length=1)
+    reason: str = "manual"
+    note: str | None = None

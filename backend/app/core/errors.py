@@ -13,6 +13,10 @@ class ErrorSpec:
 
 ERROR_SPECS: dict[str, ErrorSpec] = {
     "INVALID_REQUEST": ErrorSpec("INVALID_REQUEST", HTTPStatus.BAD_REQUEST, "Invalid request payload."),
+    "UNAUTHORIZED": ErrorSpec("UNAUTHORIZED", HTTPStatus.UNAUTHORIZED, "Authentication is required."),
+    "FORBIDDEN": ErrorSpec("FORBIDDEN", HTTPStatus.FORBIDDEN, "Permission denied."),
+    "NOT_FOUND": ErrorSpec("NOT_FOUND", HTTPStatus.NOT_FOUND, "Resource not found."),
+    "CONFLICT": ErrorSpec("CONFLICT", HTTPStatus.CONFLICT, "Resource conflict."),
     "UNSUPPORTED_SUBJECT": ErrorSpec("UNSUPPORTED_SUBJECT", HTTPStatus.BAD_REQUEST, "Subject is not supported yet."),
     "OCR_FAILED": ErrorSpec("OCR_FAILED", HTTPStatus.BAD_GATEWAY, "OCR processing failed."),
     "MODEL_FAILED": ErrorSpec("MODEL_FAILED", HTTPStatus.BAD_GATEWAY, "Model processing failed."),
@@ -34,4 +38,3 @@ class AppError(Exception):
         self.spec = ERROR_SPECS[code]
         self.detail = detail or self.spec.message
         super().__init__(self.detail)
-

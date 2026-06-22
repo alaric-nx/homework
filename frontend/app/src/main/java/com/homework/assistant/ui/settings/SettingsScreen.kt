@@ -18,6 +18,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -39,133 +41,156 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.homework.assistant.data.local.SettingsStore
+import com.homework.assistant.data.model.Student
+import com.homework.assistant.data.remote.HomeworkApi
 import kotlinx.coroutines.launch
 
-/**
- * 设置页面：管理解析所用的模型名称列表。
- *
- * 支持新增、重命名、删除模型名，并通过单选保证始终有一个选中的模型。
- * 选中的模型会在解析作业时透传给后端。
- */
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(onLogout: () -> Unit, onStudentChanged: () -> Unit) {
     val context = LocalContext.current
     val settingsStore = remember { SettingsStore(context) }
+    val api = remember { HomeworkApi() }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    val students = remember { mutableStateListOf<Student>() }
     val models = remember { mutableStateListOf<String>() }
-    var selected by remember { mutableStateOf("") }
-
-    fun reload() {
-        models.clear()
-        models.addAll(settingsStore.getModels())
-        selected = settingsStore.getSelectedModel()
-    }
-
-    // 首次组合时加载持久化数据。
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        reload()
-    }
-
+    var selectedModel by remember { mutableStateOf("") }
+    var selectedStudentId by remember { mutableStateOf(settingsStore.getCurrentStudentId()) }
+    var newStudentName by remember { mutableStateOf("") }
+    var newStudentGrade by remember { mutableStateOf("") }
     var newModel by remember { mutableStateOf("") }
-    // 非空时表示正在重命名该模型（弹出重命名对话框）。
     var renameTarget by remember { mutableStateOf<String?>(null) }
 
     fun toast(msg: String) {
         scope.launch { snackbarHostState.showSnackbar(msg) }
     }
 
+    fun reloadModels() {
+        models.clear()
+        models.addAll(settingsStore.getModels())
+        selectedModel = settingsStore.getSelectedModel()
+    }
+
+    fun reloadStudents() {
+        val token = settingsStore.getAuthToken()
+        if (token.isBlank()) return
+        scope.launch {
+            api.listStudents(token)
+                .onSuccess { response ->
+                    students.clear()
+                    students.addAll(response.items)
+                    selectedStudentId = settingsStore.getCurrentStudentId()
+                    if (selectedStudentId.isBlank() && students.isNotEmpty()) {
+                        val first = students.first()
+                        settingsStore.saveCurrentStudent(first.id, first.name, first.grade)
+                        selectedStudentId = first.id
+                        onStudentChanged()
+                    }
+                }
+                .onFailure { toast(it.message ?: "孩子列表加载失败") }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        reloadModels()
+        reloadStudents()
+    }
+
     Scaffold(
         topBar = { TopAppBar(title = { Text("设置") }) },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text(
-                text = "模型设置",
-                style = MaterialTheme.typography.titleMedium
-            )
-            Text(
-                text = "管理可用的模型名称，选中的模型会在解析作业时使用。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            // 新增模型
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedTextField(
-                    value = newModel,
-                    onValueChange = { newModel = it },
-                    label = { Text("模型名称") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f)
+            item {
+                AccountCard(
+                    userName = settingsStore.getUserName(),
+                    tenantName = settingsStore.getTenantName(),
+                    onLogout = {
+                        settingsStore.clearSession()
+                        onLogout()
+                    }
                 )
-                Button(
-                    onClick = {
+            }
+            item {
+                StudentSection(
+                    students = students,
+                    selectedStudentId = selectedStudentId,
+                    newStudentName = newStudentName,
+                    newStudentGrade = newStudentGrade,
+                    onNameChange = { newStudentName = it },
+                    onGradeChange = { newStudentGrade = it },
+                    onSelect = { student ->
+                        settingsStore.saveCurrentStudent(student.id, student.name, student.grade)
+                        selectedStudentId = student.id
+                        onStudentChanged()
+                        toast("已切换到 ${student.name}")
+                    },
+                    onAdd = {
+                        val name = newStudentName.trim()
+                        if (name.isBlank()) {
+                            toast("请输入孩子姓名")
+                            return@StudentSection
+                        }
+                        scope.launch {
+                            api.createStudent(settingsStore.getAuthToken(), name, newStudentGrade.trim())
+                                .onSuccess {
+                                    settingsStore.saveCurrentStudent(it.id, it.name, it.grade)
+                                    selectedStudentId = it.id
+                                    newStudentName = ""
+                                    newStudentGrade = ""
+                                    reloadStudents()
+                                    onStudentChanged()
+                                    toast("已添加孩子")
+                                }
+                                .onFailure { toast(it.message ?: "添加失败") }
+                        }
+                    }
+                )
+            }
+            item {
+                ModelSection(
+                    models = models,
+                    selected = selectedModel,
+                    newModel = newModel,
+                    onNewModelChange = { newModel = it },
+                    onAdd = {
                         val name = newModel.trim()
                         when {
                             name.isEmpty() -> toast("请输入模型名称")
                             !settingsStore.addModel(name) -> toast("该模型名已存在")
                             else -> {
                                 newModel = ""
-                                reload()
+                                reloadModels()
                                 toast("已添加")
                             }
                         }
+                    },
+                    onSelect = {
+                        settingsStore.selectModel(it)
+                        reloadModels()
+                    },
+                    onEdit = { renameTarget = it },
+                    onDelete = {
+                        if (settingsStore.deleteModel(it)) {
+                            reloadModels()
+                            toast("已删除")
+                        } else {
+                            toast("至少保留一个模型")
+                        }
                     }
-                ) {
-                    Text("添加")
-                }
-            }
-
-            if (models.isEmpty()) {
-                Text(
-                    text = "尚未添加模型，请先添加一个并选中。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(models, key = { it }) { model ->
-                        ModelRow(
-                            name = model,
-                            selected = model == selected,
-                            onSelect = {
-                                settingsStore.selectModel(model)
-                                reload()
-                            },
-                            onEdit = { renameTarget = model },
-                            onDelete = {
-                                if (settingsStore.deleteModel(model)) {
-                                    reload()
-                                    toast("已删除")
-                                } else {
-                                    toast("至少保留一个模型")
-                                }
-                            }
-                        )
-                    }
-                }
             }
         }
     }
 
-    // 重命名对话框
     val target = renameTarget
     if (target != null) {
         var renameText by remember(target) { mutableStateOf(target) }
@@ -183,26 +208,120 @@ fun SettingsScreen() {
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val newName = renameText.trim()
-                    when {
-                        newName.isEmpty() -> toast("请输入模型名称")
-                        !settingsStore.renameModel(target, newName) -> toast("名称为空或与已有模型重复")
-                        else -> {
-                            renameTarget = null
-                            reload()
-                            toast("已保存")
-                        }
+                    if (settingsStore.renameModel(target, renameText.trim())) {
+                        renameTarget = null
+                        reloadModels()
+                        toast("已保存")
+                    } else {
+                        toast("名称为空或重复")
                     }
-                }) {
-                    Text("保存")
-                }
+                }) { Text("保存") }
             },
             dismissButton = {
-                TextButton(onClick = { renameTarget = null }) {
-                    Text("取消")
-                }
+                TextButton(onClick = { renameTarget = null }) { Text("取消") }
             }
         )
+    }
+}
+
+@Composable
+private fun AccountCard(userName: String, tenantName: String, onLogout: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("账号信息", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(userName.ifBlank { "未命名账号" })
+            Text(
+                tenantName.ifBlank { "家庭" },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            TextButton(onClick = onLogout) { Text("退出登录") }
+        }
+    }
+}
+
+@Composable
+private fun StudentSection(
+    students: List<Student>,
+    selectedStudentId: String,
+    newStudentName: String,
+    newStudentGrade: String,
+    onNameChange: (String) -> Unit,
+    onGradeChange: (String) -> Unit,
+    onSelect: (Student) -> Unit,
+    onAdd: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("当前孩子", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            if (students.isEmpty()) {
+                Text("还没有孩子，请先添加。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    students.forEach { student ->
+                        FilterChip(
+                            selected = student.id == selectedStudentId,
+                            onClick = { onSelect(student) },
+                            label = { Text(student.name) }
+                        )
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = newStudentName,
+                    onValueChange = onNameChange,
+                    label = { Text("孩子姓名") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = newStudentGrade,
+                    onValueChange = onGradeChange,
+                    label = { Text("年级") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) { Text("添加孩子") }
+        }
+    }
+}
+
+@Composable
+private fun ModelSection(
+    models: List<String>,
+    selected: String,
+    newModel: String,
+    onNewModelChange: (String) -> Unit,
+    onAdd: () -> Unit,
+    onSelect: (String) -> Unit,
+    onEdit: (String) -> Unit,
+    onDelete: (String) -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("模型设置", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = newModel,
+                    onValueChange = onNewModelChange,
+                    label = { Text("模型名称") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                Button(onClick = onAdd) { Text("添加") }
+            }
+            models.forEach { model ->
+                ModelRow(
+                    name = model,
+                    selected = model == selected,
+                    onSelect = { onSelect(model) },
+                    onEdit = { onEdit(model) },
+                    onDelete = { onDelete(model) }
+                )
+            }
+        }
     }
 }
 
@@ -223,11 +342,7 @@ private fun ModelRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             RadioButton(selected = selected, onClick = onSelect)
-            Text(
-                text = name,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.weight(1f)
-            )
+            Text(text = name, modifier = Modifier.weight(1f))
             IconButton(onClick = onEdit) {
                 Icon(Icons.Default.Edit, contentDescription = "重命名 $name")
             }
@@ -237,3 +352,4 @@ private fun ModelRow(
         }
     }
 }
+

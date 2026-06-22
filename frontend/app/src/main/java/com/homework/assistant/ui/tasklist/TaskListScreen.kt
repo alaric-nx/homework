@@ -32,12 +32,13 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskListScreen(
+    studentId: String,
     onTaskClick: (String) -> Unit
 ) {
     val context = LocalContext.current
     val app = context.applicationContext as com.homework.assistant.HomeworkApplication
     val repo = app.taskRepository
-    val tasks by repo.observeAll().collectAsState(initial = emptyList())
+    val tasks by repo.observeByStudent(studentId).collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     var showClearDialog by remember { mutableStateOf(false) }
 

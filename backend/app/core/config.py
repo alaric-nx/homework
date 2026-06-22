@@ -69,6 +69,9 @@ class Settings:
     task_timeout_sec: int = 60
     task_retention_sec: int = 600
     task_job_dir: str = ""
+    data_dir: str = "data"
+    sqlite_path: str = ""
+    auth_token_ttl_sec: int = 315360000
 
 
 @lru_cache(maxsize=1)
@@ -98,4 +101,7 @@ def get_settings() -> Settings:
         task_timeout_sec=int(os.getenv("HW_TASK_TIMEOUT_SEC", "60")),
         task_retention_sec=int(os.getenv("HW_TASK_RETENTION_SEC", "600")),
         task_job_dir=os.getenv("HW_TASK_JOB_DIR", "").strip(),
+        data_dir=os.getenv("HW_DATA_DIR", "data").strip(),
+        sqlite_path=os.getenv("HW_SQLITE_PATH", "").strip(),
+        auth_token_ttl_sec=int(os.getenv("HW_AUTH_TOKEN_TTL_SEC", "315360000")),
     )

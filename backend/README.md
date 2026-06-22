@@ -1,219 +1,87 @@
-# Homework English Assistant Backend (MVP)
+# Homework Notebook Backend
 
-## 1) Goals
-- Receive homework photos from Android app.
-- Parse exercise meaning in Chinese.
-- Return structured answer lines and short parent-friendly explanation.
-- Provide pronunciation for words and full sentences (click-to-speak).
-- Keep output stable with strict JSON schema.
+## Scope
 
-## 2) Architecture Choice
-Use `Android + Remote Backend`.
+This branch focuses on:
 
-Backend responsibilities:
-- Direct vision-model parsing from the merged homework image.
-- LLM reasoning and structured JSON v2 output.
-- Pronunciation content generation and TTS URL generation.
-- Safety controls (child mode, uncertainty flags, fallback).
-- Observability (logs, trace ids, cost/latency metrics).
+- user login and registration
+- family tenants
+- children under a family
+- SQLite-backed metadata storage
+- local file asset storage
+- parse task persistence
+- wrong-question collection
+- watched-question collection
 
-## 3) Directory Layout
-- `src/api`: HTTP routes/controllers
-- `src/orchestrators`: business workflow pipeline
-- `src/services/ocr`: OCR adapter(s)
-- `src/services/llm`: LLM adapter(s)
-- `src/services/tts`: TTS adapter(s)
-- `src/services/storage`: object storage adapter(s)
-- `src/schemas`: request/response JSON schemas
-- `src/config`: env and runtime configs
-- `src/core`: domain models and errors
-- `src/utils`: shared helpers
-- `tests/unit`: unit tests
-- `tests/integration`: integration tests
-- `docs`: API and prompt design docs
+## Implemented So Far
 
-## 4) Core API (v1)
-### `POST /v1/homework/parse`
-Input:
-- image file or image_url
-- grade (optional)
-- expected_type (optional: choose/fill/read/translate)
-- locale (default: zh-CN)
+- SQLite schema initialization through `NotebookStore`
+- username/password registration and login
+- bearer-token session storage, default token TTL 10 years
+- family tenant creation on registration
+- student creation and listing
+- notebook task placeholder persistence
+- task block persistence
+- wrong / watched question collections
+- reserved crop fields: `bbox_json`, `crop_asset_id`
 
-Output (strict JSON):
-- `question_meaning_zh`: what this asks in Chinese
-- `answer_lines`: segmented answer lines for highlighted rendering
-- `explanation_zh`: short explanation for parent
-- `key_vocabulary`: list of words with IPA + meaning
-- `speak_units`: clickable units (word/sentence)
-- `uncertainty`: confidence + warning message
+## Current API
 
-### `POST /v1/tts/speak`
-Input:
-- text
-- voice
-- speed
+```text
+POST /v1/auth/register
+POST /v1/auth/login
+GET  /v1/auth/me
 
-Output:
-- `audio_url` (or base64 audio)
+GET  /v1/tenants/me
 
-## 5) Orchestration Flow
-1. Receive merged image bytes.
-2. LLM vision parse with schema constraint.
-3. Validate output against JSON v2 schema.
-4. Return normalized answer lines, explanation, vocabulary, TTS units, and uncertainty.
+POST /v1/students
+GET  /v1/students
 
-Fallback rules:
-- If image content is unclear, return `uncertainty.requires_review = true`.
-- If schema validation fails, return a valid fallback result and mark it for review.
+POST /v1/notebook/tasks
+POST /v1/task-blocks
+GET  /v1/task-blocks/{id}
 
-## 6) Skills Positioning (Important)
-Skills are great for:
-- Defining parse policy by exercise type.
-- Standardizing output style and pedagogy level.
-- Rapidly iterating prompts/rules.
-
-Production recommendation:
-- Do not rely on runtime skill files directly in app serving path.
-- Convert skill logic into versioned backend assets:
-  - prompt templates
-  - policy configs
-  - schema validators
-- Keep these assets hot-updatable through config store.
-
-## 7) First Milestone (MVP)
-- Single endpoint `/v1/homework/parse`
-- One OCR provider + one LLM provider + one TTS provider
-- Fixed JSON schema output
-- Parent mode only (no student chat)
-- Basic logging and request id
-
-## 8) Non-Functional Baseline
-- p95 latency target: <= 6s (single image)
-- timeout: 12s
-- retries: max 1 per downstream provider
-- image retention default: 24h (configurable)
-- privacy: encrypted at rest and in transit
-
-## 9) Implemented in This MVP
-- `app/main.py`: FastAPI entry, request-id middleware, unified error handler
-- `app/api/routes.py`: `/healthz` and `/v1/homework/parse`
-- `app/skills/common/subject_router.py`: subject routing (english/chinese/math; MVP only english enabled)
-- `app/skills/common/ocr_skill.py`: OCR skill placeholder adapter
-- `app/skills/english/english_solver_skill.py`: English solver skill with LLM adapter + fallback
-- `app/skills/common/response_schema_guard.py`: JSON schema guard + strict validation
-- `schemas/homework_parse.schema.json`: fixed output schema
-
-## 10) Quick Start
-1. Install dependencies:
-```bash
-cd backend
-pip install -r requirements.txt
+POST   /v1/task-blocks/{id}/collections/wrong
+DELETE /v1/task-blocks/{id}/collections/wrong
+POST   /v1/task-blocks/{id}/collections/watched
+DELETE /v1/task-blocks/{id}/collections/watched
+GET    /v1/question-collections?type=wrong|watched&student_id=<id>
 ```
 
-2. Start API:
-```bash
-cd backend
-./start_backend.sh
+Auth payloads:
+
+```json
+{ "username": "parent", "password": "secret123" }
 ```
 
-3. Start via systemd (Autostart on boot):
-If you want the backend to start automatically on system boot and run in the background:
-```bash
-# Register & Enable systemd service (Start on boot)
-systemctl --user enable homework-backend.service
-# Start the service
-systemctl --user start homework-backend.service
-# Check service status
-systemctl --user status homework-backend.service
-# Check service logs
-journalctl --user -u homework-backend.service -f
-```
-Note: Linger is already enabled (`loginctl enable-linger z`) so the service will start on system boot without user login.
+Login uses:
 
-4. Test request:
-```bash
-curl -X POST "http://127.0.0.1:3000/v1/homework/parse?expected_type=english" \
-  -H "content-type: image/jpeg" \
-  --data-binary "@/absolute/path/to/homework.jpg"
+```json
+{ "account": "parent", "password": "secret123" }
 ```
 
-5. Parse and fill answers back into image:
-```bash
-curl -sS -X POST "http://127.0.0.1:3000/v1/homework/parse-fill?expected_type=english" \
-  -H "content-type: image/jpeg" \
-  --data-binary "@/absolute/path/to/homework.jpg" > /tmp/parse-fill.json
+## Storage Policy
+
+- Database: SQLite first
+- Images: local filesystem first
+- Database stores metadata only
+- Paths are stored as relative `storage_key`, not absolute filesystem paths
+- Directory names do not encode dates; dates live in database columns
+- Storage layer must be replaceable with OSS later
+
+## Migration Goals
+
+- SQLite schema should stay PostgreSQL-friendly
+- asset table should decouple business rows from storage backend
+- all tenant-scoped tables must include `tenant_id`
+- all child-scoped rows must include `student_id`
+
+## Local Layout
+
+```text
+/opt/homework/data/
+  homework.sqlite3
+  objects/
+  tmp/
+  backups/
 ```
-Return fields:
-- `result`: structured parse result
-- `filled_image_base64`: image with answers filled into answer area
-- `filled_image_path`: saved file path (backend/output/filled-*.jpg)
-
-Answer fill behavior:
-- Tries automatic blank-line detection in the answer area (layout-adaptive).
-- Falls back to ratio-based placement only when line detection fails.
-
-View latest filled image:
-```bash
-cd backend
-ls -t output/filled-*.jpg | head -n 1
-```
-
-6. Check OCR provider availability:
-```bash
-curl -sS http://127.0.0.1:3000/v1/ocr/providers
-```
-
-## 11) LLM Integration Notes
-- Backend does not install `llm`; it only calls your local command when enabled.
-- Runtime config is in `backend/config.env` (recommended single place).
-- `HW_LLM_MODEL` can be empty (recommended) to use llm default model.
-- Log settings:
-  - `HW_APP_LOG_LEVEL=DEBUG`
-  - `HW_APP_LOG_OUTPUT=file`
-  - `HW_APP_LOG_FILE=logs/backend.log`
-  - `HW_LLM_RAW_LOG_DIR=logs/llm`
-- Expected CLI contract:
-```bash
-llm run --format json --model <model> "<prompt>"
-```
-- If your local `llm` command differs, only adjust:
-`app/services/llm_client.py`
-
-## 12) OCR Plugin Providers
-- OCR skill is now pluggable and tries providers in configured order.
-- Configure in `backend/config.env`:
-  - `HW_OCR_PROVIDER_ORDER=paddle_cloud,rapidocr,paddleocr,tesseract,mock`
-  - `HW_OCR_LANG=en`
-  - `HW_OCR_FETCH_URL_ENABLED=true`
-- Built-in provider adapters:
-  - `paddle_cloud` (uses `PADDLEOCR_DOC_PARSING_API_URL` + `PADDLEOCR_ACCESS_TOKEN`)
-  - `rapidocr` (package: `rapidocr-onnxruntime`)
-  - `paddleocr` (package: `paddleocr`)
-  - `tesseract` (packages/binary: `pytesseract` + `Pillow` + system `tesseract`)
-  - `mock` (always available fallback)
-- Optional install examples:
-```bash
-pip install rapidocr-onnxruntime
-pip install paddleocr
-pip install pytesseract Pillow
-```
-
-## 13) Skills Search/Install (Project Scope)
-- We searched via `find-skills` and installed:
-  - `ocr-document-processor`
-  - `paddleocr-text-recognition`
-  - `paddleocr-doc-parsing`
-- Installed paths:
-  - `/Users/y/Documents/CodexSpace/homework/.agents/skills/ocr-document-processor`
-  - `/Users/y/Documents/CodexSpace/homework/.agents/skills/paddleocr-text-recognition`
-  - `/Users/y/Documents/CodexSpace/homework/.agents/skills/paddleocr-doc-parsing`
-
-## 14) Error Code Baseline
-- `INVALID_REQUEST`
-- `UNSUPPORTED_SUBJECT`
-- `OCR_FAILED`
-- `MODEL_FAILED`
-- `SCHEMA_VALIDATION_FAILED`
-- `TIMEOUT`
-- `INTERNAL_ERROR`

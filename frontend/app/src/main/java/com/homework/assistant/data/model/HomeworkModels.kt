@@ -140,3 +140,113 @@ data class Uncertainty(
     val warning: String? = null,
     val requires_review: Boolean = false
 )
+
+data class RegisterRequest(
+    val username: String,
+    val password: String
+)
+
+data class LoginRequest(
+    val account: String,
+    val password: String
+)
+
+data class AuthResponse(
+    val token: String = "",
+    val user: NotebookUser = NotebookUser(),
+    val tenant: NotebookTenant = NotebookTenant()
+)
+
+data class MeResponse(
+    val user: NotebookUser = NotebookUser(),
+    val tenant: NotebookTenant = NotebookTenant()
+)
+
+data class NotebookUser(
+    val id: String = "",
+    val username: String = "",
+    val display_name: String = "",
+    val status: String = "active"
+)
+
+data class NotebookTenant(
+    val id: String = "",
+    val name: String = "",
+    val tenant_type: String = "family",
+    val status: String = "active"
+)
+
+data class Student(
+    val id: String = "",
+    val tenant_id: String = "",
+    val name: String = "",
+    val nickname: String? = null,
+    val grade: String? = null,
+    val school: String? = null,
+    val status: String = "active"
+)
+
+data class StudentsResponse(
+    val items: List<Student> = emptyList()
+)
+
+data class CreateStudentRequest(
+    val name: String,
+    val nickname: String? = null,
+    val grade: String? = null,
+    val school: String? = null
+)
+
+data class CreateNotebookTaskRequest(
+    val task_id: String? = null,
+    val student_id: String,
+    val subject: String = "general",
+    val status: String = "completed",
+    val result: Map<String, String> = emptyMap()
+)
+
+data class CreateTaskBlockRequest(
+    val student_id: String,
+    val task_id: String,
+    val source_block_id: String,
+    val title: String,
+    val question_text: String? = null,
+    val answer_text: String? = null,
+    val solution_text: String? = null,
+    val bbox: Map<String, Float>? = null,
+    val crop_asset_id: String? = null
+)
+
+data class SetCollectionRequest(
+    val student_id: String,
+    val reason: String = "manual",
+    val note: String? = null
+)
+
+data class CollectionListResponse(
+    val items: List<QuestionCollection> = emptyList()
+)
+
+data class QuestionCollection(
+    val id: String = "",
+    val tenant_id: String = "",
+    val student_id: String = "",
+    val collection_type: String = "",
+    val status: String = "",
+    val reason: String = "",
+    val note: String? = null,
+    val task_block: TaskBlock = TaskBlock()
+)
+
+data class TaskBlock(
+    val id: String = "",
+    val task_id: String = "",
+    val source_block_id: String = "",
+    val title: String = "",
+    val question_text: String? = null,
+    val answer_text: String? = null,
+    val solution_text: String? = null,
+    val crop_asset_id: String? = null,
+    val is_wrong_collected: Boolean = false,
+    val is_watched: Boolean = false
+)

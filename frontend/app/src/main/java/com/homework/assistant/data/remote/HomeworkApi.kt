@@ -1,6 +1,18 @@
 package com.homework.assistant.data.remote
 
 import com.google.gson.Gson
+import com.homework.assistant.data.model.AuthResponse
+import com.homework.assistant.data.model.CollectionListResponse
+import com.homework.assistant.data.model.CreateNotebookTaskRequest
+import com.homework.assistant.data.model.CreateStudentRequest
+import com.homework.assistant.data.model.CreateTaskBlockRequest
+import com.homework.assistant.data.model.LoginRequest
+import com.homework.assistant.data.model.MeResponse
+import com.homework.assistant.data.model.RegisterRequest
+import com.homework.assistant.data.model.SetCollectionRequest
+import com.homework.assistant.data.model.Student
+import com.homework.assistant.data.model.StudentsResponse
+import com.homework.assistant.data.model.TaskBlock
 import com.homework.assistant.data.model.SubmitResponse
 import com.homework.assistant.data.model.TaskStatusResponse
 import kotlinx.coroutines.Dispatchers
@@ -8,6 +20,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
 import java.io.IOException
@@ -59,6 +72,161 @@ class HomeworkApi(
     }
 
     private val client: OkHttpClient get() = sharedClient
+    private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+
+    suspend fun register(
+        username: String,
+        password: String
+    ): Result<AuthResponse> =
+        postJson(
+            path = "/v1/auth/register",
+            body = RegisterRequest(
+                username = username,
+                password = password
+            ),
+            responseClass = AuthResponse::class.java
+        )
+
+    suspend fun login(account: String, password: String): Result<AuthResponse> =
+        postJson(
+            path = "/v1/auth/login",
+            body = LoginRequest(account = account, password = password),
+            responseClass = AuthResponse::class.java
+        )
+
+    suspend fun me(token: String): Result<MeResponse> =
+        getJson(
+            path = "/v1/auth/me",
+            token = token,
+            responseClass = MeResponse::class.java
+        )
+
+    suspend fun listStudents(token: String): Result<StudentsResponse> =
+        getJson(
+            path = "/v1/students",
+            token = token,
+            responseClass = StudentsResponse::class.java
+        )
+
+    suspend fun createStudent(
+        token: String,
+        name: String,
+        grade: String
+    ): Result<Student> =
+        postJson(
+            path = "/v1/students",
+            token = token,
+            body = CreateStudentRequest(name = name, grade = grade.ifBlank { null }),
+            responseClass = Student::class.java
+        )
+
+    suspend fun listCollections(
+        token: String,
+        studentId: String,
+        type: String
+    ): Result<CollectionListResponse> =
+        getJson(
+            path = "/v1/question-collections?type=${URLEncoder.encode(type, "UTF-8")}" +
+                "&student_id=${URLEncoder.encode(studentId, "UTF-8")}",
+            token = token,
+            responseClass = CollectionListResponse::class.java
+        )
+
+    suspend fun createNotebookTask(
+        token: String,
+        studentId: String,
+        taskId: String,
+        subject: String
+    ): Result<Map<*, *>> =
+        postJson(
+            path = "/v1/notebook/tasks",
+            token = token,
+            body = CreateNotebookTaskRequest(
+                task_id = taskId,
+                student_id = studentId,
+                subject = subject,
+                result = emptyMap()
+            ),
+            responseClass = Map::class.java
+        )
+
+    suspend fun createTaskBlock(
+        token: String,
+        studentId: String,
+        taskId: String,
+        sourceBlockId: String,
+        title: String,
+        questionText: String?,
+        answerText: String?,
+        solutionText: String?
+    ): Result<TaskBlock> =
+        postJson(
+            path = "/v1/task-blocks",
+            token = token,
+            body = CreateTaskBlockRequest(
+                student_id = studentId,
+                task_id = taskId,
+                source_block_id = sourceBlockId,
+                title = title,
+                question_text = questionText,
+                answer_text = answerText,
+                solution_text = solutionText
+            ),
+            responseClass = TaskBlock::class.java
+        )
+
+    suspend fun getTaskBlock(
+        token: String,
+        studentId: String,
+        blockId: String
+    ): Result<TaskBlock> =
+        getJson(
+            path = "/v1/task-blocks/${URLEncoder.encode(blockId, "UTF-8")}" +
+                "?student_id=${URLEncoder.encode(studentId, "UTF-8")}",
+            token = token,
+            responseClass = TaskBlock::class.java
+        )
+
+    suspend fun setCollection(
+        token: String,
+        studentId: String,
+        blockId: String,
+        type: String
+    ): Result<Unit> =
+        postJson(
+            path = "/v1/task-blocks/${URLEncoder.encode(blockId, "UTF-8")}/collections/" +
+                URLEncoder.encode(type, "UTF-8"),
+            token = token,
+            body = SetCollectionRequest(student_id = studentId),
+            responseClass = UnitResponse::class.java
+        ).map { Unit }
+
+    suspend fun unsetCollection(
+        token: String,
+        studentId: String,
+        blockId: String,
+        type: String
+    ): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = "$baseUrl/v1/task-blocks/${URLEncoder.encode(blockId, "UTF-8")}/collections/" +
+                    "${URLEncoder.encode(type, "UTF-8")}?student_id=${URLEncoder.encode(studentId, "UTF-8")}"
+                val request = Request.Builder()
+                    .url(url)
+                    .addAuth(token)
+                    .delete()
+                    .build()
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        HttpStatusException(response.code, "服务器返回 ${response.code}\n$url")
+                    )
+                }
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
 
     /**
      * 异步提交解析请求：上传题图二进制，立即返回 task_id。
@@ -173,4 +341,68 @@ class HomeworkApi(
                 Result.failure(e)
             }
         }
+
+    private suspend fun <T : Any> postJson(
+        path: String,
+        body: Any,
+        responseClass: Class<T>,
+        token: String = ""
+    ): Result<T> =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = "$baseUrl$path"
+                val request = Request.Builder()
+                    .url(url)
+                    .addAuth(token)
+                    .post(gson.toJson(body).toRequestBody(jsonMediaType))
+                    .build()
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        HttpStatusException(response.code, "服务器返回 ${response.code}\n$url")
+                    )
+                }
+                val responseBody = response.body?.string()
+                    ?: return@withContext Result.failure(IOException("响应为空"))
+                Result.success(gson.fromJson(responseBody, responseClass))
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    private suspend fun <T : Any> getJson(
+        path: String,
+        responseClass: Class<T>,
+        token: String = ""
+    ): Result<T> =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = "$baseUrl$path"
+                val request = Request.Builder()
+                    .url(url)
+                    .addAuth(token)
+                    .get()
+                    .build()
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        HttpStatusException(response.code, "服务器返回 ${response.code}\n$url")
+                    )
+                }
+                val responseBody = response.body?.string()
+                    ?: return@withContext Result.failure(IOException("响应为空"))
+                Result.success(gson.fromJson(responseBody, responseClass))
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    private fun Request.Builder.addAuth(token: String): Request.Builder {
+        if (token.isNotBlank()) {
+            header("Authorization", "Bearer $token")
+        }
+        return this
+    }
+
+    private data class UnitResponse(val status: String = "")
 }

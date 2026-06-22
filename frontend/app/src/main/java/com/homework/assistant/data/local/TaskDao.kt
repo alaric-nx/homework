@@ -11,6 +11,7 @@ interface TaskDao {
         """
         SELECT
             id,
+            studentId,
             subject,
             modelName,
             status,
@@ -25,6 +26,27 @@ interface TaskDao {
         """
     )
     fun observeAll(): Flow<List<TaskEntity>>
+
+    @Query(
+        """
+        SELECT
+            id,
+            studentId,
+            subject,
+            modelName,
+            status,
+            thumbnailPath,
+            imagePath,
+            NULL AS resultJson,
+            errorMessage,
+            createdAt,
+            updatedAt
+        FROM tasks
+        WHERE studentId = :studentId
+        ORDER BY createdAt DESC
+        """
+    )
+    fun observeByStudent(studentId: String): Flow<List<TaskEntity>>
 
     @Query("SELECT * FROM tasks WHERE id = :id")
     suspend fun getById(id: String): TaskEntity?

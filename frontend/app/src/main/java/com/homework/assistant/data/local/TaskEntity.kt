@@ -6,6 +6,7 @@ import androidx.room.PrimaryKey
 @Entity(tableName = "tasks")
 data class TaskEntity(
     @PrimaryKey val id: String,
+    val studentId: String = "",
     val subject: String = "general",
     val modelName: String = "",
     val status: String,          // PENDING, RUNNING, SUCCESS, FAILED

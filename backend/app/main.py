@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.api.deps import get_task_store
+from app.api.deps import get_notebook_store, get_task_store
 from app.api.routes import router
 from app.core.config import get_settings
 from app.core.errors import AppError
@@ -18,6 +18,7 @@ from app.core.models import ErrorResponse
 async def lifespan(_: FastAPI):
     settings = get_settings()
     setup_logging(settings.app_log_level, output=settings.app_log_output, file_path=settings.app_log_file)
+    get_notebook_store()
     task_store = get_task_store()
     await task_store.start_cleanup_loop()
     try:

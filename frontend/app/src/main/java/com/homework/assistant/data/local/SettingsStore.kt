@@ -112,6 +112,45 @@ class SettingsStore(context: Context) {
     val modelName: String
         get() = getSelectedModel()
 
+    fun saveSession(token: String, displayName: String, tenantName: String) {
+        prefs.edit()
+            .putString(KEY_AUTH_TOKEN, token)
+            .putString(KEY_USER_NAME, displayName)
+            .putString(KEY_TENANT_NAME, tenantName)
+            .apply()
+    }
+
+    fun clearSession() {
+        prefs.edit()
+            .remove(KEY_AUTH_TOKEN)
+            .remove(KEY_USER_NAME)
+            .remove(KEY_TENANT_NAME)
+            .remove(KEY_CURRENT_STUDENT_ID)
+            .remove(KEY_CURRENT_STUDENT_NAME)
+            .remove(KEY_CURRENT_STUDENT_GRADE)
+            .apply()
+    }
+
+    fun getAuthToken(): String = prefs.getString(KEY_AUTH_TOKEN, "") ?: ""
+
+    fun getUserName(): String = prefs.getString(KEY_USER_NAME, "") ?: ""
+
+    fun getTenantName(): String = prefs.getString(KEY_TENANT_NAME, "") ?: ""
+
+    fun saveCurrentStudent(id: String, name: String, grade: String?) {
+        prefs.edit()
+            .putString(KEY_CURRENT_STUDENT_ID, id)
+            .putString(KEY_CURRENT_STUDENT_NAME, name)
+            .putString(KEY_CURRENT_STUDENT_GRADE, grade.orEmpty())
+            .apply()
+    }
+
+    fun getCurrentStudentId(): String = prefs.getString(KEY_CURRENT_STUDENT_ID, "") ?: ""
+
+    fun getCurrentStudentName(): String = prefs.getString(KEY_CURRENT_STUDENT_NAME, "") ?: ""
+
+    fun getCurrentStudentGrade(): String = prefs.getString(KEY_CURRENT_STUDENT_GRADE, "") ?: ""
+
     private fun saveModels(models: List<String>) {
         prefs.edit().putString(KEY_MODELS, gson.toJson(models)).apply()
     }
@@ -133,5 +172,11 @@ class SettingsStore(context: Context) {
         private const val KEY_MODEL_NAME = "model_name" // 旧版单值，保留用于迁移
         private const val KEY_MODELS = "model_names"
         private const val KEY_SELECTED = "selected_model"
+        private const val KEY_AUTH_TOKEN = "auth_token"
+        private const val KEY_USER_NAME = "user_name"
+        private const val KEY_TENANT_NAME = "tenant_name"
+        private const val KEY_CURRENT_STUDENT_ID = "current_student_id"
+        private const val KEY_CURRENT_STUDENT_NAME = "current_student_name"
+        private const val KEY_CURRENT_STUDENT_GRADE = "current_student_grade"
     }
 }

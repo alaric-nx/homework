@@ -23,10 +23,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -65,7 +67,8 @@ fun CaptureScreen(
     onSubjectSelected: (String) -> Unit,
     onImageSelected: (Uri) -> Unit,
     onMultipleImagesSelected: (List<Uri>) -> Unit,
-    onBatchImagesSelected: (List<Uri>) -> Unit
+    onBatchImagesSelected: (List<Uri>) -> Unit,
+    onOpenTasks: () -> Unit
 ) {
     val context = LocalContext.current
     val ttsManager = (context.applicationContext as HomeworkApplication).ttsManager
@@ -116,7 +119,16 @@ fun CaptureScreen(
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }) },
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.app_name)) },
+                navigationIcon = {
+                    IconButton(onClick = onOpenTasks) {
+                        Icon(Icons.Default.List, contentDescription = "任务列表")
+                    }
+                }
+            )
+        },
         containerColor = Color(0xFFF6F8FB)
     ) { padding ->
         Column(

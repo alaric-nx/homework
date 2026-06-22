@@ -5,16 +5,25 @@ import hashlib
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse
 
-from app.api.deps import get_pipeline, get_task_store
+from app.api.deps import get_notebook_store, get_pipeline, get_task_store
 from app.core.errors import AppError
 from app.core.models import (
+    AuthResponse,
+    CreateNotebookTaskRequest,
+    CreateStudentRequest,
+    CreateTaskBlockRequest,
+    LoginRequest,
+    MeResponse,
     ParseSubmitResponse,
+    RegisterRequest,
+    SetCollectionRequest,
     TaskStatus,
     TaskStatusResponse,
 )
+from app.services.notebook_store import CollectionType, NotebookStore
 from app.services.parse_pipeline import ParsePipeline
 from app.services.task_store import TaskStore
 
@@ -22,9 +31,175 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _require_auth(
+    notebook_store: Annotated[NotebookStore, Depends(get_notebook_store)],
+    authorization: str | None = Header(default=None),
+) -> dict:
+    prefix = "Bearer "
+    if not authorization or not authorization.startswith(prefix):
+        raise AppError("UNAUTHORIZED", "missing bearer token.")
+    return notebook_store.authenticate(authorization[len(prefix):])
+
+
 @router.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.post("/v1/auth/register", response_model=AuthResponse)
+async def register(
+    payload: RegisterRequest,
+    notebook_store: Annotated[NotebookStore, Depends(get_notebook_store)],
+) -> AuthResponse:
+    result = notebook_store.register_user(
+        username=payload.username,
+        password=payload.password,
+    )
+    return AuthResponse(**result)
+
+
+@router.post("/v1/auth/login", response_model=AuthResponse)
+async def login(
+    payload: LoginRequest,
+    notebook_store: Annotated[NotebookStore, Depends(get_notebook_store)],
+) -> AuthResponse:
+    return AuthResponse(**notebook_store.login(account=payload.account, password=payload.password))
+
+
+@router.get("/v1/auth/me", response_model=MeResponse)
+async def me(auth: Annotated[dict, Depends(_require_auth)]) -> MeResponse:
+    return MeResponse(user=auth["user"], tenant=auth["tenant"])
+
+
+@router.get("/v1/tenants/me")
+async def get_my_tenant(auth: Annotated[dict, Depends(_require_auth)]) -> dict:
+    return auth["tenant"]
+
+
+@router.post("/v1/students")
+async def create_student(
+    payload: CreateStudentRequest,
+    auth: Annotated[dict, Depends(_require_auth)],
+    notebook_store: Annotated[NotebookStore, Depends(get_notebook_store)],
+) -> dict:
+    return notebook_store.create_student(
+        tenant_id=auth["tenant_id"],
+        name=payload.name,
+        nickname=payload.nickname,
+        grade=payload.grade,
+        school=payload.school,
+    )
+
+
+@router.get("/v1/students")
+async def list_students(
+    auth: Annotated[dict, Depends(_require_auth)],
+    notebook_store: Annotated[NotebookStore, Depends(get_notebook_store)],
+) -> dict:
+    return {"items": notebook_store.list_students(tenant_id=auth["tenant_id"])}
+
+
+@router.post("/v1/notebook/tasks")
+async def create_notebook_task(
+    payload: CreateNotebookTaskRequest,
+    auth: Annotated[dict, Depends(_require_auth)],
+    notebook_store: Annotated[NotebookStore, Depends(get_notebook_store)],
+) -> dict:
+    return notebook_store.create_parse_task_stub(
+        tenant_id=auth["tenant_id"],
+        student_id=payload.student_id,
+        user_id=auth["user_id"],
+        subject=payload.subject,
+        task_id=payload.task_id,
+        status=payload.status,
+        result=payload.result,
+    )
+
+
+@router.post("/v1/task-blocks")
+async def create_task_block(
+    payload: CreateTaskBlockRequest,
+    auth: Annotated[dict, Depends(_require_auth)],
+    notebook_store: Annotated[NotebookStore, Depends(get_notebook_store)],
+) -> dict:
+    return notebook_store.create_task_block(
+        tenant_id=auth["tenant_id"],
+        student_id=payload.student_id,
+        task_id=payload.task_id,
+        source_block_id=payload.source_block_id,
+        title=payload.title,
+        question_text=payload.question_text,
+        answer_text=payload.answer_text,
+        solution_text=payload.solution_text,
+        bbox=payload.bbox,
+        crop_asset_id=payload.crop_asset_id,
+    )
+
+
+@router.get("/v1/task-blocks/{task_block_id}")
+async def get_task_block(
+    task_block_id: str,
+    student_id: str = Query(min_length=1),
+    auth: dict = Depends(_require_auth),
+    notebook_store: NotebookStore = Depends(get_notebook_store),
+) -> dict:
+    return notebook_store.get_task_block_detail(
+        tenant_id=auth["tenant_id"],
+        student_id=student_id,
+        task_block_id=task_block_id,
+    )
+
+
+@router.post("/v1/task-blocks/{task_block_id}/collections/{collection_type}")
+async def set_task_block_collection(
+    task_block_id: str,
+    collection_type: CollectionType,
+    payload: SetCollectionRequest,
+    auth: Annotated[dict, Depends(_require_auth)],
+    notebook_store: Annotated[NotebookStore, Depends(get_notebook_store)],
+) -> dict:
+    return notebook_store.set_collection(
+        tenant_id=auth["tenant_id"],
+        student_id=payload.student_id,
+        task_block_id=task_block_id,
+        collection_type=collection_type,
+        user_id=auth["user_id"],
+        reason=payload.reason,
+        note=payload.note,
+    )
+
+
+@router.delete("/v1/task-blocks/{task_block_id}/collections/{collection_type}")
+async def unset_task_block_collection(
+    task_block_id: str,
+    collection_type: CollectionType,
+    student_id: str = Query(min_length=1),
+    auth: dict = Depends(_require_auth),
+    notebook_store: NotebookStore = Depends(get_notebook_store),
+) -> dict[str, str]:
+    notebook_store.unset_collection(
+        tenant_id=auth["tenant_id"],
+        student_id=student_id,
+        task_block_id=task_block_id,
+        collection_type=collection_type,
+    )
+    return {"status": "ok"}
+
+
+@router.get("/v1/question-collections")
+async def list_question_collections(
+    collection_type: CollectionType = Query(alias="type"),
+    student_id: str = Query(min_length=1),
+    auth: dict = Depends(_require_auth),
+    notebook_store: NotebookStore = Depends(get_notebook_store),
+) -> dict:
+    return {
+        "items": notebook_store.list_collections(
+            tenant_id=auth["tenant_id"],
+            student_id=student_id,
+            collection_type=collection_type,
+        )
+    }
 
 
 async def _run_parse_task(

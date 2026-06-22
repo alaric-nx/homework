@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
@@ -16,12 +17,15 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.homework.assistant.data.local.TaskEntity
+import com.homework.assistant.data.local.SettingsStore
 import com.homework.assistant.data.model.normalizeSubject
 import com.homework.assistant.service.UploadWorker
+import com.homework.assistant.ui.auth.AuthScreen
 import com.homework.assistant.ui.capture.CaptureScreen
 import com.homework.assistant.ui.crop.CropScreen
 import com.homework.assistant.ui.merge.MergeScreen
 import com.homework.assistant.ui.merge.ResultHolder
+import com.homework.assistant.ui.notebook.NotebookScreen
 import com.homework.assistant.ui.result.ResultScreen
 import com.homework.assistant.ui.settings.SettingsScreen
 import com.homework.assistant.ui.tasklist.TaskListScreen
@@ -35,7 +39,7 @@ private data class BottomTab(val route: String, val label: String, val icon: and
 
 private val TABS = listOf(
     BottomTab("capture", "拍题", Icons.Default.CameraAlt),
-    BottomTab("taskList", "任务", Icons.Default.List),
+    BottomTab("notebook", "题集", Icons.Default.Bookmarks),
     BottomTab("settings", "设置", Icons.Default.Settings)
 )
 
@@ -45,6 +49,9 @@ fun HomeworkApp() {
     val context = LocalContext.current
     val app = context.applicationContext as HomeworkApplication
     val scope = rememberCoroutineScope()
+    val settingsStore = remember { SettingsStore(context) }
+    var isAuthed by remember { mutableStateOf(settingsStore.getAuthToken().isNotBlank()) }
+    var currentStudentId by remember { mutableStateOf(settingsStore.getCurrentStudentId()) }
 
     val selectedImageUri = remember { mutableStateListOf<Uri>() }
     val cropSegments = remember { mutableStateListOf<Uri>() }
@@ -68,6 +75,7 @@ fun HomeworkApp() {
         val taskId = UUID.randomUUID().toString()
         val task = TaskEntity(
             id = taskId,
+            studentId = settingsStore.getCurrentStudentId(),
             subject = normalizeSubject(subject),
             status = "PENDING",
             thumbnailPath = thumbPath,
@@ -110,7 +118,15 @@ fun HomeworkApp() {
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    val showBottomBar = currentRoute in listOf("capture", "taskList", "settings")
+    if (!isAuthed) {
+        AuthScreen(onAuthed = {
+            isAuthed = true
+            currentStudentId = settingsStore.getCurrentStudentId()
+        })
+        return
+    }
+
+    val showBottomBar = currentRoute in listOf("capture", "notebook", "settings")
 
     Scaffold(
         bottomBar = {
@@ -158,7 +174,8 @@ fun HomeworkApp() {
                     },
                     onBatchImagesSelected = { uris ->
                         submitBatchImages(uris, selectedSubject)
-                    }
+                    },
+                    onOpenTasks = { navController.navigate("taskList") }
                 )
             }
 
@@ -224,7 +241,7 @@ fun HomeworkApp() {
                         scope.launch {
                             createTaskFromBitmap(bitmap, selectedSubject)
                             clearAll()
-                            navigateToTab("taskList")
+                            navigateToTab("capture")
                         }
                     },
                     onBack = { navController.popBackStack() }
@@ -233,14 +250,29 @@ fun HomeworkApp() {
 
             composable("taskList") {
                 TaskListScreen(
+                    studentId = currentStudentId,
                     onTaskClick = { taskId ->
                         navController.navigate("result/$taskId")
                     }
                 )
             }
 
+            composable("notebook") {
+                NotebookScreen(studentId = currentStudentId)
+            }
+
             composable("settings") {
-                SettingsScreen()
+                SettingsScreen(
+                    onLogout = {
+                        isAuthed = false
+                        navController.navigate("capture") {
+                            popUpTo("capture") { inclusive = true }
+                        }
+                    },
+                    onStudentChanged = {
+                        currentStudentId = settingsStore.getCurrentStudentId()
+                    }
+                )
             }
 
             composable("result/{taskId}") { backStackEntry ->
