@@ -1,7 +1,6 @@
 package com.homework.assistant.ui.tasklist
 
 import android.graphics.BitmapFactory
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -16,14 +15,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.homework.assistant.data.local.TaskEntity
-import com.homework.assistant.data.repository.TaskRepository
+import com.homework.assistant.data.model.subjectLabel
 import com.homework.assistant.service.UploadWorker
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -97,10 +96,11 @@ fun TaskListScreen(
                             scope.launch {
                                 repo.update(task.copy(
                                     status = "RUNNING",
+                                    resultJson = null,
                                     errorMessage = null,
                                     updatedAt = System.currentTimeMillis()
                                 ))
-                                UploadWorker.enqueue(context, task.id)
+                                UploadWorker.enqueue(context, task.id, force = true)
                             }
                         },
                         onDelete = {
@@ -153,11 +153,18 @@ private fun TaskCard(
 
             // 信息
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = dateFormat.format(Date(task.createdAt)),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = dateFormat.format(Date(task.createdAt)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    SubjectBadge(task.subject)
+                    ModelBadge(task.modelName)
+                }
                 Spacer(modifier = Modifier.height(4.dp))
                 StatusLabel(task.status)
                 if (task.status == "FAILED" && !task.errorMessage.isNullOrEmpty()) {
@@ -174,7 +181,7 @@ private fun TaskCard(
             // 操作按钮
             if (task.status == "FAILED" || task.status == "SUCCESS") {
                 IconButton(onClick = onRetry) {
-                    Icon(Icons.Default.Refresh, contentDescription = "重试",
+                    Icon(Icons.Default.Refresh, contentDescription = "重新解题",
                         tint = MaterialTheme.colorScheme.primary)
                 }
             }
@@ -183,6 +190,40 @@ private fun TaskCard(
                     tint = MaterialTheme.colorScheme.error)
             }
         }
+    }
+}
+
+@Composable
+private fun SubjectBadge(subject: String) {
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.62f),
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+    ) {
+        Text(
+            text = subjectLabel(subject),
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun ModelBadge(modelName: String) {
+    val label = modelName.trim().ifBlank { "default" }
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

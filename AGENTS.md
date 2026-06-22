@@ -1,127 +1,204 @@
 # AGENTS.md
 
 ## 文档导航
-本项目采用分层 AGENTS 文档：
-- 根文档（本文件）：给出全局目标、边界、阶段状态
-- `frontend/AGENTS.md`：前端 Android 端约束与任务
-- `backend/AGENTS.md`：后端 Python + opencode + skills 约束与任务
+
+本项目采用分层文档：
+
+- 根文档（本文件）：项目总览、全局边界、跨端接口决策。
+- `frontend/AGENTS.md`：Android 前端约束、接口消费、展示规则。
+- `frontend/PLAN.md`：前端任务计划。
+- `frontend/PROGRESS.md`：前端进展记录。
+- `backend/AGENTS.md`：Python 后端约束、模型编排、输出 schema。
+- `backend/PLAN.md`：后端任务计划。
+- `backend/PROGRESS.md`：后端进展记录。
 
 推荐阅读顺序：
-1. 先读根 `AGENTS.md`
-2. 再按任务进入对应子目录 `AGENTS.md`
+
+1. 先读根 `AGENTS.md`。
+2. 再按任务进入 `frontend/` 或 `backend/`。
+3. 实施前查看对应子项目的 `PLAN.md` 与 `PROGRESS.md`。
 
 ## 项目介绍
-面向家长辅导低龄孩子英语作业的 Android 应用。
 
-核心目标：
-- 家长拍照并裁剪题目。
-- 多张裁剪图可在前端按顺序合并为一张“完整题图”。
-- 后端接收题图后，调用大模型输出结构化结果：
-  - 题目中文理解
-  - 参考答案
-  - 讲解
-  - 词汇
-  - 可点击发音单元（词/句）
-  - 不确定性标记
-- 前端支持点击词或句直接发音（Android 本地 TTS）。
+本项目是一个面向多学科练习题解析的 Android 应用，帮助家长或学习者处理作业、练习册、考试题和基础学习题。
+
+核心流程：
+
+- 家长拍照或从相册导入题图。
+- 前端对题图进行裁剪、排序、合并和压缩。
+- 后端接收完整题图，调用视觉大模型解析题目。
+- 后端返回 JSON v4 结构化结果。
+- 前端展示题目原图、批改总览、逐题答案、逐题题解、全局讲解和知识点。
+- 前端支持答案高亮、英语题面点读和本地 TTS。
 
 ## 已确定技术方案
-- 前端：Kotlin 原生 Android（Jetpack Compose）
-- 后端：Python
-- 模型调用：通过 opencode 调用大模型
-- 编排方式：skills 分层（现阶段仅英语）
-- 学科策略：预留语文/数学分流入口，当前只实现英语链路
-- 题目输入策略：前端完成裁剪与合并，后端接收合并后的完整题图
 
-## 需求清单与状态
+- 前端：Kotlin 原生 Android（Jetpack Compose）。
+- 后端：Python。
+- 模型调用：通用 OpenAI 兼容接口。
+- 题图输入：前端完成裁剪与合并，后端接收完整题图。
+- 学科入口：通用、英语、文科、理科。
+- TTS：Android 本地 `TextToSpeech`。
 
-### A. 产品与流程
-- [x] 明确主流程：拍照 -> 裁剪 -> 合并 -> 上传 -> 解析 -> 展示结果 -> 点读
-- [x] 明确“多图合一题”由前端完成
-- [x] 明确前端为 Kotlin 原生
-- [x] 明确后端暂不做完整性强校验
-- [x] 定义前端交互细节（裁剪页、合并页、结果页）
-- [x] 定义异常流程（上传失败、解析失败、超时重试）
+## 当前阶段重点
 
-### B. 后端能力（Python + opencode + skills）
-- [x] 明确后端总体方向（Python + opencode）
-- [x] 明确 skills 分流口（english/chinese/math）
-- [x] 实现 subject router skill
-- [x] 实现 OCR skill
-- [x] 实现 English semantic/solver skill
-- [x] 实现固定 JSON 输出与 schema 校验
-- [x] 实现 API 接口（解析入口）
-- [x] 实现日志与错误码规范
+当前阶段聚焦 JSON v4 逐题报告：
 
-### C. 前端能力（Kotlin Android）
-- [x] 明确使用 Android 本地 TTS（TextToSpeech，延迟初始化 + 多引擎回退）
-- [x] 相机拍照与相册导入
-- [x] 题图裁剪（合并页内单张裁剪，坐标精确映射 ContentScale.Fit）
-- [x] 多段图片排序与合并
-- [x] 上传与结果展示（含填写后题图 base64 展示）
-- [x] 词/句点击发音
-- [x] 上传前图片压缩（长边 1920px + JPEG 85%）
-- [x] 后端 API 对接（parse-fill 接口、SSL 忽略、ApiResponse 字段映射）
-- [x] "再来一题"状态完整清理（含 ResultHolder）
-- [x] 异步任务队列（WorkManager，后台上传不受息屏/切后台影响）
-- [x] 任务列表页（历史记录，最多保留 10 条，单删/全删/手动重试）
-- [x] 底部导航栏（拍题 / 任务列表双 Tab）
-- [x] 填写后题图双指缩放拖动（clipToBounds 限制框内）
-- [x] 结果数据持久化（Room 数据库，替代 ResultHolder 内存传递）
+- `subject` 分为 `general`、`english`、`liberal_arts`、`science`。
+- `question_blocks` 表示图片中的独立题目块。
+- `question_blocks[].content_items` 表示题面可见内容，包括题目要求、例句、材料、选项等。
+- `answer_items` 是参考答案区唯一数据源。
+- `student_answer_reviews` 表示学生已写答案的批改结果。
+- `solution_steps` 表示逐题题解，按 `block_id` 归属到题目块。
+- `learning_points` 表示知识点、词汇、概念、公式、单位或方法。
+- `explanation_zh` 只做全局总结、共性错因或整体提醒。
+- 顶部批改总览保留，用于一眼看到错题、看不清和未作答题号。
+- 前端逐题卡片内展示：答案 -> 批改短提示 -> 题解。
 
-### D. 当前不做 / 后续再做
-- [x] 暂不做语文 skills
-- [x] 暂不做数学 skills
-- [x] 暂不做后端完整性强校验（缺题自动拦截）
-- [ ] 云端高拟真 TTS（后续可选）
-- [ ] 精细化题型识别与自动分题（后续可选）
+## 学科分类
 
-## 固定返回 JSON（目标字段）
-后端目标返回结构（字段名可在 API 设计时微调）：
+`subject` 取值：
+
+- `general`：通用，默认值。适合混合题或用户不确定题型时使用。
+- `english`：英语。保留题目要求、例句、场景、短文、词库、选项、词义、IPA 和点读。
+- `liberal_arts`：文科。覆盖语文、拼音、道法、历史、地理等文字理解类题目。
+- `science`：理科。覆盖数学、科学、物理、化学等计算、推理和步骤类题目。
+
+接口：
+
+```text
+POST /v1/homework/parse?subject=general
+POST /v1/homework/parse?subject=english
+POST /v1/homework/parse?subject=liberal_arts
+POST /v1/homework/parse?subject=science
+```
+
+重新解题：
+
+```text
+POST /v1/homework/parse?subject=science&force=true
+```
+
+## JSON v4 正式字段
+
+后端当前返回结构：
+
+- `schema_version`
+- `subject`
 - `question_meaning_zh`
-- `reference_answer`
+- `question_blocks`
+- `answer_items`
+- `student_answer_reviews`
+- `solution_steps`
 - `explanation_zh`
-- `key_vocabulary`
-- `speak_units`
+- `learning_points`
 - `uncertainty`
 
-## 解析策略（当前生效）
-- 总体策略：`image-first + OCR-assist`
-- 大模型输入：必须包含原题图；OCR 结果作为辅助，不可替代图片。
-- 冲突处理：OCR 与图片冲突时，以图片语义为准。
-- 编号题策略：仅当识别到编号时按编号顺序组织答案；无编号题不强制排序。
-- 当前 OCR 来源：PaddleCloud 文档解析返回结构，优先取 `layoutParsingResults[*].markdown.text`，并结合 `parsing_res_list` 提供块级辅助信息。
+不再作为正式接口输出：
 
-## 回写策略（当前生效）
-- 回写阶段不再调用大模型；仅消费 parse 阶段返回的 `reference_answer` / `answer_placements`。
-- 槽位优先级：`answer_placements` 直写优先，OCR/规则映射作为兜底。
-- 文字定位采用“布局自适应校准层”：基于候选框估计列结构、行高、行距后动态计算 `x/y` 偏移与有效行高。
-- 小样本门控：当候选行不足时自动回退默认参数，避免误校准。
+- `question_instruction`
+- `answer_lines`
+- `read_units`
+- `reference_answer`
+- `key_vocabulary`
+- `speak_units`
 
-## 配置文件优先级（backend）
-- 通用配置：`backend/config.env`（可提交）
-- 本地覆盖：`backend/.env`（同 key 优先级高于 `config.env`，不提交 Git）
-- 进程环境变量优先级最高（高于 `.env`）
-- `backend/start_backend.sh` 启动顺序：先加载 `config.env`，再加载 `.env` 覆盖
+## 字段关系
 
-## 子目录说明
-- 前端说明：`/frontend/AGENTS.md`
-- 后端说明：`/backend/AGENTS.md`
+- `question_blocks[].block_id` 是题目块主键。
+- `answer_items[].block_id` 必须指向题目块。
+- `student_answer_reviews[].block_id` 必须指向题目块。
+- `student_answer_reviews[].answer_id` 可指向对应 `answer_items[].answer_id`。
+- `solution_steps[].block_id` 必须指向题目块。
+- `learning_points[].block_id` 可为空；为空表示全局知识点。
 
-## Opencode Remote 图片触发规则（新增）
-当在项目根目录通过 opencode remote 进行交互时，若用户输入里包含“图片文件”（本地路径或上传图片），执行以下默认动作：
+## 展示顺序
+
+前端结果页当前顺序：
+
+1. 题目原图。
+2. 不确定性提示。
+3. 批改总览。
+4. 题目理解。
+5. 按 `question_blocks` 展示逐题报告。
+6. 全局讲解 / 总结。
+7. 知识点。
+
+逐题报告内：
+
+1. 题块标题。
+2. 必要题面辅助内容（按学科过滤）。
+3. 参考答案。
+4. 学生答案短批改。
+5. 题解。
+
+## 关键跨端约定
+
+- `answer_items.plain_text` 只放最终答案或必须填写的关键结果，不放大段题解。
+- 逐题推理、计算、选项排除、错因分析放到同 `block_id` 的 `solution_steps`。
+- 如果同一 `question_block` 内有多条答案，前端按题号将对应 `solution_steps` 就近插到该答案后面；无法匹配题号的题解才放在题卡末尾。
+- `explanation_zh` 只放全局总结，不堆逐题题解。
+- `science` 和 `general` 默认不展开 `content_items`，避免题干、选项重复铺满。
+- `english` 展示题目要求、例句、场景、短文、词库、选项并支持朗读。
+- `liberal_arts` 展示材料、对话、图中文字等有阅读价值的题面内容。
+- 数学公式优先使用 Unicode / 纯文本；前端会清洗常见 LaTeX 命令。
+- 前端逐题题卡使用中性浅灰分层、左侧灰色分隔条和标题灰底，提升连续题目之间的视觉分割；不使用高饱和亮色，以免干扰答案和批改颜色。
+
+## 后端配置文件优先级
+
+- 通用配置：`backend/config.env`（可提交）。
+- 本地覆盖：`backend/.env`（同 key 优先级高于 `config.env`，不提交 Git）。
+- 进程环境变量优先级最高。
+- `backend/start_backend.sh` 启动顺序：先加载 `config.env`，再加载 `.env` 覆盖。
+
+## 本地运行产物
+
+不提交 Git：
+
+- `logs/`
+- `backend/logs/`
+- `backend/job/`
+- `frontend/**/build/`
+- `frontend/.gradle/`
+
+## 远端后端部署
+
+远端主机：
+
+```text
+root@tx
+```
+
+远端目录：
+
+```text
+/opt/homework/backend
+```
+
+服务：
+
+```text
+homework-backend.service
+```
+
+发布后需要重启服务并检查 `active (running)`。
+
+## LLM Remote 图片触发规则
+
+当在项目根目录通过 llm remote 交互，且用户输入包含图片文件（本地路径或上传图片）时：
 
 1. 直接触发 skills 链路，不要求先启动本项目后端服务。
-2. 优先使用已安装 OCR 相关 skills 进行识别与解析（当前已安装）：
+2. 优先使用已安装 OCR / 文档解析相关 skills：
    - `ocr-document-processor`
    - `paddleocr-text-recognition`
    - `paddleocr-doc-parsing`
    - `discord-homework-auto`（Discord 场景优先）
-3. 解析目标仍按英语作业场景输出结构化结果（题意、答案、讲解、词汇、点读单元、不确定性）。
-4. 若识别到是“看图填空”类题目，默认执行“按编号提取答案”的策略，而不是只抽取图片中文字。
+3. 解析目标按当前所选学科输出结构化结果；未指定时按通用作业解析。
+4. 看图填空类题目默认按编号提取答案，并尽量生成完整答案行。
 5. 仅当用户明确要求“走后端接口联调”时，才调用 `backend` API。
 
-说明：
-- 该规则的目标是“收到图片立即触发 skills”，避免先做服务启动步骤。
-- Discord 场景推荐命令：
-  - `python .agents/skills/discord-homework-auto/scripts/discord_homework_parse_fill.py --image "<IMAGE_PATH>"`
+Discord 场景推荐命令：
+
+```bash
+python .agents/skills/discord-homework-auto/scripts/discord_homework_parse_fill.py --image "<IMAGE_PATH>"
+```

@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+import json
+
+from app.services.task_store import TASK_RESULT_SCHEMA_VERSION, TaskStore
+
+
+def _task_payload(updated_at: float, schema_version: int = TASK_RESULT_SCHEMA_VERSION) -> dict:
+    return {
+        "schema_version": schema_version,
+        "task_id": "abc",
+        "status": "completed",
+        "image_hash": "abc",
+        "model": "test",
+        "subject": "english",
+        "created_at": updated_at,
+        "updated_at": updated_at,
+        "result": {
+            "schema_version": "4.0",
+            "subject": "english",
+            "question_meaning_zh": "补全句子。\n补全完整句子。",
+            "question_blocks": [
+                {
+                    "block_id": "q1",
+                    "order": 1,
+                    "title": "第1题",
+                    "question_meaning_zh": "补全完整句子。",
+                    "content_items": [
+                        {
+                            "item_id": "q1-c1",
+                            "order": 1,
+                            "group_id": None,
+                            "type": "instruction",
+                            "text": "Complete the sentence.",
+                            "meaning_zh": "补全句子。",
+                            "language": "en",
+                            "speak_text": "Complete the sentence.",
+                            "speakable": True,
+                        }
+                    ],
+                }
+            ],
+            "answer_items": [
+                {
+                    "answer_id": "q1-a1",
+                    "block_id": "q1",
+                    "order": 1,
+                    "number": "1",
+                    "answer_type": "fill_blank",
+                    "plain_text": "I am a student.",
+                    "speak_text": "I am a student.",
+                    "display": {
+                        "mode": "inline_segments",
+                        "format": "plain_text",
+                        "latex": None,
+                        "preserve_newlines": False,
+                        "runs": [{"text": "I am a student.", "role": "answer"}],
+                    },
+                }
+            ],
+            "student_answer_reviews": [],
+            "solution_steps": [],
+            "explanation_zh": "I 后面用 am。",
+            "learning_points": [
+                {"block_id": "q1", "term": "I", "explanation_zh": "我", "pronunciation": "/aɪ/", "category": "word", "label": "vocabulary"},
+                {"block_id": "q1", "term": "am", "explanation_zh": "是", "pronunciation": "/æm/", "category": "word", "label": "vocabulary"},
+                {"block_id": "q1", "term": "student", "explanation_zh": "学生", "pronunciation": "/ˈstuːdnt/", "category": "word", "label": "vocabulary"},
+            ],
+            "uncertainty": {"requires_review": False, "confidence": 0.95, "reason": None},
+        },
+        "error_code": None,
+        "error_message": None,
+    }
+
+
+def test_load_task_from_disk_deletes_expired_cache(tmp_path) -> None:
+    store = TaskStore(timeout_sec=60, retention_sec=10, job_dir=tmp_path)
+    cache_path = tmp_path / "abc.json"
+    cache_path.write_text(
+        json.dumps(_task_payload(updated_at=100.0), ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    assert store._load_task_from_disk("abc") is None
+    assert not cache_path.exists()
+
+
+def test_load_task_from_disk_deletes_schema_mismatch(tmp_path) -> None:
+    store = TaskStore(timeout_sec=60, retention_sec=10, job_dir=tmp_path)
+    cache_path = tmp_path / "abc.json"
+    cache_path.write_text(
+        json.dumps(_task_payload(updated_at=100.0, schema_version=1), ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    assert store._load_task_from_disk("abc") is None
+    assert not cache_path.exists()

@@ -1,22 +1,137 @@
 from __future__ import annotations
 
+import time
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class VocabularyItem(BaseModel):
+class LearningPoint(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    word: str = Field(min_length=1)
-    meaning_zh: str = Field(min_length=1)
-    ipa: str | None = None
+    block_id: str | None = None
+    term: str = Field(min_length=1)
+    explanation_zh: str = Field(min_length=1)
+    pronunciation: str | None = None
+    category: Literal["word", "concept", "formula", "unit", "method", "other"] = "other"
+    label: str | None = None
 
 
-class SpeakUnit(BaseModel):
+class ContentItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    unit_type: Literal["word", "sentence"]
+    item_id: str = Field(min_length=1)
+    order: int = Field(ge=1)
+    group_id: str | None = None
+    type: Literal[
+        "instruction",
+        "example",
+        "context",
+        "material",
+        "dialogue",
+        "word_bank",
+        "option",
+        "image_text",
+        "other",
+    ] = "other"
     text: str = Field(min_length=1)
     meaning_zh: str | None = None
+    language: Literal["zh", "en", "mixed", "unknown"] = "unknown"
+    speak_text: str | None = None
+    speakable: bool = True
+
+
+class DisplayRun(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1)
+    role: Literal["given", "answer", "connector", "correction", "student_answer"]
+
+
+class AnswerDisplay(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal[
+        "inline_segments",
+        "math_block",
+        "paragraph",
+        "choice",
+        "matching",
+        "table",
+        "pinyin",
+        "copying",
+        "plain",
+    ] = "inline_segments"
+    format: Literal["plain_text", "plain_math", "latex", "vertical_calculation", "table"] = "plain_text"
+    latex: str | None = None
+    preserve_newlines: bool = False
+    runs: list[DisplayRun] = Field(min_length=1)
+
+
+class AnswerItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    answer_id: str = Field(min_length=1)
+    block_id: str = Field(min_length=1)
+    order: int = Field(ge=1)
+    number: str | None = None
+    answer_type: Literal[
+        "fill_blank",
+        "choice",
+        "picture_word",
+        "matching",
+        "sentence_ordering",
+        "reading_qa",
+        "translation",
+        "correction",
+        "copying",
+        "calculation",
+        "proof",
+        "short_answer",
+        "composition",
+        "pinyin",
+        "other",
+    ] = "other"
+    plain_text: str = Field(min_length=1)
+    speak_text: str | None = None
+    display: AnswerDisplay
+
+
+class QuestionBlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    block_id: str = Field(min_length=1)
+    order: int = Field(ge=1)
+    title: str = Field(min_length=1)
+    question_meaning_zh: str = Field(min_length=1)
+    content_items: list[ContentItem] = Field(default_factory=list)
+
+
+class StudentAnswerReview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    review_id: str = Field(min_length=1)
+    block_id: str = Field(min_length=1)
+    answer_id: str | None = None
+    order: int = Field(ge=1)
+    number: str | None = None
+    student_answer: str | None = None
+    correct_answer: str | None = None
+    status: Literal[
+        "correct",
+        "incorrect",
+        "partially_correct",
+        "unanswered",
+        "unclear",
+        "not_applicable",
+    ]
+    feedback_zh: str = Field(min_length=1)
+    confidence: float = Field(ge=0.0, le=1.0, default=0.8)
+
+
+class SolutionStep(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    block_id: str = Field(min_length=1)
+    number: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    content_zh: str = Field(min_length=1)
+    formula: str | None = None
+    result: str | None = None
 
 
 class Uncertainty(BaseModel):
@@ -26,33 +141,6 @@ class Uncertainty(BaseModel):
     reason: str | None = None
 
 
-class AnswerPlacement(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    number: int = Field(ge=1, le=99)
-    text: str = Field(min_length=1)
-    bbox_norm: list[float] = Field(min_length=4, max_length=4)
-    font_size_ratio: float | None = Field(default=None, ge=0.005, le=0.2)
-
-
-class HomeworkParseResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    question_meaning_zh: str = Field(min_length=1)
-    reference_answer: str = Field(min_length=1)
-    explanation_zh: str = Field(min_length=1)
-    key_vocabulary: list[VocabularyItem] = Field(default_factory=list)
-    speak_units: list[SpeakUnit] = Field(default_factory=list)
-    uncertainty: Uncertainty = Field(default_factory=Uncertainty)
-    answer_placements: list[AnswerPlacement] = Field(default_factory=list)
-    ocr_result: OCRResult | None = None
-
-
-class HomeworkParseFillResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    result: HomeworkParseResponse
-    filled_image_base64: str
-    filled_image_path: str
-
-
 class ErrorResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     error_code: str
@@ -60,20 +148,61 @@ class ErrorResponse(BaseModel):
     request_id: str
 
 
-class OCRBlock(BaseModel):
+class HomeworkParseResult(BaseModel):
+    """Fixed parse output schema v4."""
+
     model_config = ConfigDict(extra="forbid")
-    text: str = ""
-    bbox: list[float] | None = None
-    polygon: list[list[float]] = Field(default_factory=list)
-    label: str | None = None
-    order: int | None = None
-    page: int | None = None
+    schema_version: Literal["4.0"] = "4.0"
+    subject: Literal["general", "english", "liberal_arts", "science"] = "general"
+    question_meaning_zh: str = Field(min_length=1)
+    question_blocks: list[QuestionBlock] = Field(min_length=1)
+    answer_items: list[AnswerItem] = Field(min_length=1)
+    student_answer_reviews: list[StudentAnswerReview] = Field(default_factory=list)
+    solution_steps: list[SolutionStep] = Field(default_factory=list)
+    explanation_zh: str = Field(min_length=1)
+    learning_points: list[LearningPoint] = Field(default_factory=list)
+    uncertainty: Uncertainty = Field(default_factory=Uncertainty)
 
 
-class OCRResult(BaseModel):
+class TaskStatus(str, Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+@dataclass
+class Task:
+    """Internal task state for async parse workflow."""
+
+    task_id: str
+    status: TaskStatus
+    image_hash: str
+    model: str
+    subject: str = "general"
+    created_at: float = field(default_factory=time.time)
+    updated_at: float = field(default_factory=time.time)
+    result: HomeworkParseResult | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+class ParseSubmitResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    text: str = ""
-    confidence: float = Field(ge=0.0, le=1.0, default=0.0)
-    image_width: int | None = None
-    image_height: int | None = None
-    blocks: list[OCRBlock] = Field(default_factory=list)
+    task_id: str
+    status: str
+    image_hash: str
+    subject: str = "general"
+    result: HomeworkParseResult | None = None
+
+
+class TaskStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    task_id: str
+    status: str
+    image_hash: str
+    model: str
+    subject: str = "general"
+    result: HomeworkParseResult | None = None
+    error_code: str | None = None
+    error_message: str | None = None

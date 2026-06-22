@@ -1,0 +1,10 @@
+{
+  "active_provider": "cpa",
+  "providers": {
+    "cpa": {
+      "base_url": "https://api-ai.for2.top/v1",
+      "api_key": "sk-api-for2_DevOps",
+      "default_model": "gemini-3.5-flash-low"
+    }
+  }
+}

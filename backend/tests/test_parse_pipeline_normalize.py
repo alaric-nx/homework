@@ -1,61 +1,233 @@
 from __future__ import annotations
 
+import asyncio
+
+from app.core.config import Settings
 from app.core.errors import AppError
-from app.core.models import OCRResult
+from app.core.models import HomeworkParseResult
 from app.services.parse_pipeline import ParsePipeline
 
 
-def test_normalize_candidate_reference_answer_and_font_size_ratio() -> None:
-    pipeline = ParsePipeline.__new__(ParsePipeline)
-    candidate = {
-        "reference_answer": ["1 a car", "2 a robot"],
-        "answer_placements": [
-            {"number": 1, "text": "a car", "bbox_norm": [0.1, 0.1, 0.2, 0.2], "font_size_ratio": 0.0},
-            {"number": 2, "text": ["a", "robot"], "bbox_norm": [0.2, 0.2, 0.3, 0.3], "font_size_ratio": 0.01},
-        ],
-    }
-    out = pipeline._normalize_candidate(candidate)
-    assert out["reference_answer"] == "1 a car\n2 a robot"
-    assert out["answer_placements"][0]["font_size_ratio"] is None
-    assert out["answer_placements"][1]["text"] == "a robot"
-
-
-def test_should_retry_strict_false_when_budget_low() -> None:
-    pipeline = ParsePipeline.__new__(ParsePipeline)
-    candidate = {"reference_answer": "1 a car", "answer_placements": []}
-    err = AppError("SCHEMA_VALIDATION_FAILED", "minor")
-    out = pipeline._should_retry_strict(
-        candidate, err, OCRResult(text="some text", confidence=0.8), elapsed_sec=34.0
-    )
-    assert out is False
-
-
-def test_salvage_candidate_keeps_valid_answers() -> None:
-    pipeline = ParsePipeline.__new__(ParsePipeline)
-
-    class _DummySolver:
-        def fallback_output(self, ocr, reason=None):
-            return {
-                "question_meaning_zh": "fallback",
-                "reference_answer": "fallback",
-                "explanation_zh": "fallback",
-                "key_vocabulary": [],
-                "speak_units": [],
-                "uncertainty": {"requires_review": True, "confidence": 0.5, "reason": reason},
-                "answer_placements": [],
+def _v4_payload() -> dict:
+    return {
+        "schema_version": "4.0",
+        "subject": "english",
+        "question_meaning_zh": "题目要求补全句子。",
+        "question_blocks": [
+            {
+                "block_id": "q1",
+                "order": 1,
+                "title": "第1题",
+                "question_meaning_zh": "补全完整句子。",
+                "content_items": [
+                    {
+                        "item_id": "q1-c1",
+                        "order": 1,
+                        "group_id": None,
+                        "type": "instruction",
+                        "text": "Complete the sentence.",
+                        "meaning_zh": "补全句子。",
+                        "language": "en",
+                        "speak_text": "Complete the sentence.",
+                        "speakable": True,
+                    }
+                ],
             }
+        ],
+        "answer_items": [
+            {
+                "answer_id": "q1-a1",
+                "block_id": "q1",
+                "order": 1,
+                "number": "1",
+                "answer_type": "fill_blank",
+                "plain_text": "I am a student.",
+                "speak_text": "I am a student.",
+                "display": {
+                    "mode": "inline_segments",
+                    "format": "plain_text",
+                    "latex": None,
+                    "preserve_newlines": False,
+                    "runs": [{"text": "I am a student.", "role": "answer"}],
+                },
+            }
+        ],
+        "student_answer_reviews": [],
+        "solution_steps": [],
+        "explanation_zh": "I 后面用 am。",
+        "learning_points": [
+            {
+                "block_id": "q1",
+                "term": "student",
+                "explanation_zh": "学生",
+                "pronunciation": "/ˈstuːdnt/",
+                "category": "word",
+                "label": "vocabulary",
+            }
+        ],
+        "uncertainty": {"requires_review": False, "confidence": 0.95, "reason": None},
+    }
 
-    pipeline.english_solver = _DummySolver()
+
+def test_normalize_candidate_passthrough_non_dict() -> None:
+    pipeline = ParsePipeline.__new__(ParsePipeline)
+    assert pipeline._normalize_candidate("not-a-dict") == "not-a-dict"
+
+
+def test_normalize_candidate_converts_legacy_answer_lines_to_v4() -> None:
+    pipeline = ParsePipeline.__new__(ParsePipeline)
     candidate = {
-        "question_meaning_zh": "题意\n作答",
-        "reference_answer": "1 a car\n2 a robot",
-        "explanation_zh": "解释",
-        "answer_placements": [
-            {"number": 1, "text": "a car", "bbox_norm": [0.1, 0.1, 0.2, 0.2], "font_size_ratio": 0.0},
-            {"number": 2, "text": "a robot", "bbox_norm": [0.2, 0.2, 0.3, 0.3], "font_size_ratio": 0.01},
+        "subject": "english",
+        "question_meaning_zh": "补全句子。",
+        "question_blocks": [
+            {
+                "block_id": "q1",
+                "title": "第1题",
+                "question_instruction": "Complete the sentence.",
+                "question_meaning_zh": "补全句子。",
+            }
+        ],
+        "answer_lines": [
+            {
+                "block_id": "q1",
+                "number": 1,
+                "line_type": "fill_blank",
+                "plain_text": "I am a student.",
+                "segments": [
+                    {"text": "I ", "role": "given"},
+                    {"text": "am", "role": "answer"},
+                    {"text": " a student.", "role": "given"},
+                ],
+            }
         ],
     }
-    out = pipeline._salvage_candidate(candidate, OCRResult(text="x", confidence=0.9), "r")
-    assert out["reference_answer"].startswith("1 a car")
-    assert len(out["answer_placements"]) == 2
-    assert out["answer_placements"][0]["font_size_ratio"] is None
+
+    out = pipeline._normalize_candidate(candidate)
+
+    assert out["schema_version"] == "4.0"
+    assert "answer_lines" not in out
+    assert out["question_blocks"][0]["order"] == 1
+    assert out["question_blocks"][0]["content_items"][0]["type"] == "instruction"
+    assert out["answer_items"][0]["answer_id"] == "q1-a1"
+    assert out["answer_items"][0]["answer_type"] == "fill_blank"
+    assert out["answer_items"][0]["display"]["runs"][1]["role"] == "answer"
+
+
+def test_normalize_candidate_sorts_blocks_and_answers_by_order() -> None:
+    pipeline = ParsePipeline.__new__(ParsePipeline)
+    candidate = {
+        "schema_version": "4.0",
+        "subject": "general",
+        "question_meaning_zh": "两个题块。",
+        "question_blocks": [
+            {"block_id": "q2", "order": 2, "title": "第二题", "question_meaning_zh": "第二题。", "content_items": []},
+            {"block_id": "q1", "order": 1, "title": "第一题", "question_meaning_zh": "第一题。", "content_items": []},
+        ],
+        "answer_items": [
+            {"answer_id": "q1-a2", "block_id": "q1", "order": 2, "number": "2", "answer_type": "short_answer", "plain_text": "B", "speak_text": "B", "display": {"mode": "plain", "format": "plain_text", "latex": None, "preserve_newlines": False, "runs": [{"text": "B", "role": "answer"}]}},
+            {"answer_id": "q1-a1", "block_id": "q1", "order": 1, "number": "1", "answer_type": "short_answer", "plain_text": "A", "speak_text": "A", "display": {"mode": "plain", "format": "plain_text", "latex": None, "preserve_newlines": False, "runs": [{"text": "A", "role": "answer"}]}},
+            {"answer_id": "q2-a1", "block_id": "q2", "order": 1, "number": "1", "answer_type": "short_answer", "plain_text": "C", "speak_text": "C", "display": {"mode": "plain", "format": "plain_text", "latex": None, "preserve_newlines": False, "runs": [{"text": "C", "role": "answer"}]}},
+        ],
+    }
+
+    out = pipeline._normalize_candidate(candidate)
+
+    assert [block["block_id"] for block in out["question_blocks"]] == ["q1", "q2"]
+    assert [item["answer_id"] for item in out["answer_items"]] == ["q1-a1", "q1-a2", "q2-a1"]
+
+
+def test_normalize_candidate_splits_multiline_content_items() -> None:
+    pipeline = ParsePipeline.__new__(ParsePipeline)
+    candidate = _v4_payload()
+    candidate["question_blocks"][0]["content_items"] = [
+        {
+            "item_id": "q1-c1",
+            "order": 1,
+            "group_id": "example-1",
+            "type": "example",
+            "text": "It is big.\nIt has a long nose.\nIt is gray.",
+            "meaning_zh": "它很大。\n它有长鼻子。\n它是灰色的。",
+            "language": "en",
+            "speak_text": "It is big.\nIt has a long nose.\nIt is gray.",
+            "speakable": True,
+        }
+    ]
+
+    out = pipeline._normalize_candidate(candidate)
+    items = out["question_blocks"][0]["content_items"]
+
+    assert [item["text"] for item in items] == [
+        "It is big.",
+        "It has a long nose.",
+        "It is gray.",
+    ]
+    assert [item["order"] for item in items] == [1, 2, 3]
+    assert {item["group_id"] for item in items} == {"example-1"}
+
+
+def test_normalize_candidate_preserves_plain_text_when_runs_disagree() -> None:
+    pipeline = ParsePipeline.__new__(ParsePipeline)
+    candidate = _v4_payload()
+    candidate["answer_items"][0]["display"]["runs"] = [{"text": "am", "role": "answer"}]
+
+    out = pipeline._normalize_candidate(candidate)
+
+    assert out["answer_items"][0]["plain_text"] == "I am a student."
+    assert out["answer_items"][0]["display"]["runs"] == [
+        {"text": "I am a student.", "role": "answer"}
+    ]
+
+
+def test_mark_missing_vocabulary_updates_uncertainty() -> None:
+    pipeline = ParsePipeline.__new__(ParsePipeline)
+    result = HomeworkParseResult.model_validate(_v4_payload())
+
+    out = pipeline._mark_missing_vocabulary(result)
+
+    assert out.uncertainty.requires_review is True
+    assert out.uncertainty.confidence == 0.85
+    assert "am" in (out.uncertainty.reason or "")
+
+
+def test_repair_missing_vocabulary_calls_model_once() -> None:
+    class FakeLLMClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def generate_any_json(self, prompt: str, model: str | None = None) -> dict:
+            self.calls += 1
+            return {"items": [{"word": "am", "meaning_zh": "是", "ipa": "/æm/"}]}
+
+    llm_client = FakeLLMClient()
+    pipeline = ParsePipeline.__new__(ParsePipeline)
+    pipeline.llm_client = llm_client
+    result = HomeworkParseResult.model_validate(_v4_payload())
+
+    out = asyncio.run(pipeline._repair_missing_vocabulary(result, model=None))
+
+    assert llm_client.calls == 1
+    assert any(item.term == "am" for item in out.learning_points)
+    assert out.uncertainty.requires_review is False
+
+
+def test_run_rejects_response_subject_mismatch() -> None:
+    class FakeLLMClient:
+        async def generate_json(
+            self,
+            prompt: str,
+            file_paths: list[str] | None = None,
+            model: str | None = None,
+        ) -> dict:
+            payload = _v4_payload()
+            payload["subject"] = "english"
+            return payload
+
+    pipeline = ParsePipeline(FakeLLMClient(), Settings())
+
+    try:
+        asyncio.run(pipeline.run(image_bytes=None, model=None, subject="science"))
+    except AppError as exc:
+        assert exc.code == "SCHEMA_VALIDATION_FAILED"
+        assert "does not match request subject" in exc.detail
+    else:
+        raise AssertionError("expected subject mismatch to fail")

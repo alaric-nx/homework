@@ -12,47 +12,126 @@ data class CropSegment(
 )
 
 /**
- * /v1/homework/parse-fill 外层响应
+ * POST /v1/homework/parse 异步提交响应（202 Accepted）
  */
-data class ApiResponse(
-    val result: ParseResponse = ParseResponse(),
-    val filled_image_base64: String? = null,
-    val filled_image_path: String? = null
+data class SubmitResponse(
+    @SerializedName("task_id")
+    val taskId: String = "",
+    val status: String = "",
+    @SerializedName("image_hash")
+    val imageHash: String = "",
+    val subject: String = "general"
 )
 
 /**
- * 后端解析响应（内层 result）
+ * GET /v1/homework/tasks/{task_id} 轮询响应
+ * status ∈ pending / processing / completed / failed
+ * completed 时 result 非空；failed 时 errorCode / errorMessage 非空
  */
-data class ParseResponse(
+data class TaskStatusResponse(
+    @SerializedName("task_id")
+    val taskId: String = "",
+    val status: String = "",
+    @SerializedName("image_hash")
+    val imageHash: String = "",
+    val model: String = "default",
+    val subject: String = "general",
+    val result: ParseResult? = null,
+    @SerializedName("error_code")
+    val errorCode: String? = null,
+    @SerializedName("error_message")
+    val errorMessage: String? = null
+)
+
+/**
+ * 解析结果 JSON v4（题面内容、答案项、学生答案批改分层展示）
+ */
+data class ParseResult(
+    val schema_version: String = "4.0",
+    val subject: String = "general",
     val question_meaning_zh: String = "",
-    val reference_answer: String = "",
+    val question_blocks: List<QuestionBlock> = emptyList(),
+    val answer_items: List<AnswerItem> = emptyList(),
+    val student_answer_reviews: List<StudentAnswerReview> = emptyList(),
+    val solution_steps: List<SolutionStep> = emptyList(),
     val explanation_zh: String = "",
-    val key_vocabulary: List<VocabularyItem> = emptyList(),
-    val speak_units: List<SpeakUnit> = emptyList(),
-    val uncertainty: Uncertainty = Uncertainty(),
-    val answer_placements: List<AnswerPlacement> = emptyList()
+    val learning_points: List<LearningPoint> = emptyList(),
+    val uncertainty: Uncertainty = Uncertainty()
 )
 
-data class VocabularyItem(
-    val word: String = "",
-    val ipa: String = "",
-    val meaning_zh: String = ""
+data class QuestionBlock(
+    val block_id: String = "",
+    val order: Int = 0,
+    val title: String = "",
+    val question_meaning_zh: String = "",
+    val content_items: List<ContentItem> = emptyList()
 )
 
-data class SpeakUnit(
+data class ContentItem(
+    val item_id: String = "",
+    val order: Int = 0,
+    val group_id: String? = null,
+    val type: String = "other",
     val text: String = "",
     val meaning_zh: String? = null,
-    @SerializedName("unit_type")
-    val type: String = "word" // "word" or "sentence"
+    val language: String = "unknown",
+    val speak_text: String? = null,
+    val speakable: Boolean = true
 )
 
-data class AnswerPlacement(
-    val number: Int = 0,
+data class AnswerItem(
+    val answer_id: String = "",
+    val block_id: String = "",
+    val order: Int = 0,
+    val number: String? = null,
+    val answer_type: String = "other",
+    val plain_text: String = "",
+    val speak_text: String? = null,
+    val display: AnswerDisplay = AnswerDisplay()
+)
+
+data class AnswerDisplay(
+    val mode: String = "inline_segments",
+    val format: String = "plain_text",
+    val latex: String? = null,
+    val preserve_newlines: Boolean = false,
+    val runs: List<DisplayRun> = emptyList()
+)
+
+data class DisplayRun(
     val text: String = "",
-    @SerializedName("bbox_norm")
-    val bboxNorm: List<Float> = emptyList(),
-    @SerializedName("font_size_ratio")
-    val fontSizeRatio: Float? = null
+    val role: String = "answer"
+)
+
+data class StudentAnswerReview(
+    val review_id: String = "",
+    val block_id: String = "",
+    val answer_id: String? = null,
+    val order: Int = 0,
+    val number: String? = null,
+    val student_answer: String? = null,
+    val correct_answer: String? = null,
+    val status: String = "unclear",
+    val feedback_zh: String = "",
+    val confidence: Float = 0.0f
+)
+
+data class SolutionStep(
+    val block_id: String = "",
+    val number: String = "",
+    val title: String = "",
+    val content_zh: String = "",
+    val formula: String? = null,
+    val result: String? = null
+)
+
+data class LearningPoint(
+    val block_id: String? = null,
+    val term: String = "",
+    val explanation_zh: String = "",
+    val pronunciation: String? = null,
+    val category: String = "other",
+    val label: String? = null
 )
 
 data class Uncertainty(

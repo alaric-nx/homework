@@ -3,7 +3,7 @@
 ## 1) Goals
 - Receive homework photos from Android app.
 - Parse exercise meaning in Chinese.
-- Return reference answer and short parent-friendly explanation.
+- Return structured answer lines and short parent-friendly explanation.
 - Provide pronunciation for words and full sentences (click-to-speak).
 - Keep output stable with strict JSON schema.
 
@@ -11,8 +11,8 @@
 Use `Android + Remote Backend`.
 
 Backend responsibilities:
-- OCR extraction from image.
-- LLM reasoning and structured parsing.
+- Direct vision-model parsing from the merged homework image.
+- LLM reasoning and structured JSON v2 output.
 - Pronunciation content generation and TTS URL generation.
 - Safety controls (child mode, uncertainty flags, fallback).
 - Observability (logs, trace ids, cost/latency metrics).
@@ -41,9 +41,8 @@ Input:
 - locale (default: zh-CN)
 
 Output (strict JSON):
-- `question_text`: recognized exercise text
 - `question_meaning_zh`: what this asks in Chinese
-- `reference_answer`: recommended answer
+- `answer_lines`: segmented answer lines for highlighted rendering
 - `explanation_zh`: short explanation for parent
 - `key_vocabulary`: list of words with IPA + meaning
 - `speak_units`: clickable units (word/sentence)
@@ -59,18 +58,14 @@ Output:
 - `audio_url` (or base64 audio)
 
 ## 5) Orchestration Flow
-1. Upload image -> storage
-2. OCR -> raw text + bbox + confidence
-3. Exercise classifier (optional)
-4. LLM parse with schema constraint
-5. Validate output against schema
-6. Generate TTS units (word/sentence)
-7. Return normalized response
+1. Receive merged image bytes.
+2. LLM vision parse with schema constraint.
+3. Validate output against JSON v2 schema.
+4. Return normalized answer lines, explanation, vocabulary, TTS units, and uncertainty.
 
 Fallback rules:
-- If OCR confidence is low, return `uncertainty.requires_review = true`.
-- If schema validation fails, retry with stricter prompt once.
-- If still fails, return partial result + error_code.
+- If image content is unclear, return `uncertainty.requires_review = true`.
+- If schema validation fails, return a valid fallback result and mark it for review.
 
 ## 6) Skills Positioning (Important)
 Skills are great for:
@@ -105,7 +100,7 @@ Production recommendation:
 - `app/api/routes.py`: `/healthz` and `/v1/homework/parse`
 - `app/skills/common/subject_router.py`: subject routing (english/chinese/math; MVP only english enabled)
 - `app/skills/common/ocr_skill.py`: OCR skill placeholder adapter
-- `app/skills/english/english_solver_skill.py`: English solver skill with OpenCode adapter + fallback
+- `app/skills/english/english_solver_skill.py`: English solver skill with LLM adapter + fallback
 - `app/skills/common/response_schema_guard.py`: JSON schema guard + strict validation
 - `schemas/homework_parse.schema.json`: fixed output schema
 
@@ -122,7 +117,21 @@ cd backend
 ./start_backend.sh
 ```
 
-3. Test request:
+3. Start via systemd (Autostart on boot):
+If you want the backend to start automatically on system boot and run in the background:
+```bash
+# Register & Enable systemd service (Start on boot)
+systemctl --user enable homework-backend.service
+# Start the service
+systemctl --user start homework-backend.service
+# Check service status
+systemctl --user status homework-backend.service
+# Check service logs
+journalctl --user -u homework-backend.service -f
+```
+Note: Linger is already enabled (`loginctl enable-linger z`) so the service will start on system boot without user login.
+
+4. Test request:
 ```bash
 curl -X POST "http://127.0.0.1:3000/v1/homework/parse?expected_type=english" \
   -H "content-type: image/jpeg" \
@@ -150,26 +159,26 @@ cd backend
 ls -t output/filled-*.jpg | head -n 1
 ```
 
-4. Check OCR provider availability:
+6. Check OCR provider availability:
 ```bash
 curl -sS http://127.0.0.1:3000/v1/ocr/providers
 ```
 
-## 11) OpenCode Integration Notes
-- Backend does not install `opencode`; it only calls your local command when enabled.
+## 11) LLM Integration Notes
+- Backend does not install `llm`; it only calls your local command when enabled.
 - Runtime config is in `backend/config.env` (recommended single place).
-- `HW_OPENCODE_MODEL` can be empty (recommended) to use opencode default model.
+- `HW_LLM_MODEL` can be empty (recommended) to use llm default model.
 - Log settings:
   - `HW_APP_LOG_LEVEL=DEBUG`
   - `HW_APP_LOG_OUTPUT=file`
   - `HW_APP_LOG_FILE=logs/backend.log`
-  - `HW_OPENCODE_RAW_LOG_DIR=logs/opencode`
+  - `HW_LLM_RAW_LOG_DIR=logs/llm`
 - Expected CLI contract:
 ```bash
-opencode run --format json --model <model> "<prompt>"
+llm run --format json --model <model> "<prompt>"
 ```
-- If your local `opencode` command differs, only adjust:
-`app/services/opencode_client.py`
+- If your local `llm` command differs, only adjust:
+`app/services/llm_client.py`
 
 ## 12) OCR Plugin Providers
 - OCR skill is now pluggable and tries providers in configured order.

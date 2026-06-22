@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -15,12 +16,14 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.homework.assistant.data.local.TaskEntity
+import com.homework.assistant.data.model.normalizeSubject
 import com.homework.assistant.service.UploadWorker
 import com.homework.assistant.ui.capture.CaptureScreen
 import com.homework.assistant.ui.crop.CropScreen
 import com.homework.assistant.ui.merge.MergeScreen
 import com.homework.assistant.ui.merge.ResultHolder
 import com.homework.assistant.ui.result.ResultScreen
+import com.homework.assistant.ui.settings.SettingsScreen
 import com.homework.assistant.ui.tasklist.TaskListScreen
 import com.homework.assistant.util.ImageUtils
 import kotlinx.coroutines.Dispatchers
@@ -32,7 +35,8 @@ private data class BottomTab(val route: String, val label: String, val icon: and
 
 private val TABS = listOf(
     BottomTab("capture", "拍题", Icons.Default.CameraAlt),
-    BottomTab("taskList", "任务", Icons.Default.List)
+    BottomTab("taskList", "任务", Icons.Default.List),
+    BottomTab("settings", "设置", Icons.Default.Settings)
 )
 
 @Composable
@@ -46,6 +50,33 @@ fun HomeworkApp() {
     val cropSegments = remember { mutableStateListOf<Uri>() }
     val originalUris = remember { mutableStateListOf<Uri>() }
     val cropTargetIndex = remember { mutableIntStateOf(-1) }
+    var selectedSubject by remember { mutableStateOf("general") }
+
+    suspend fun createTaskFromBitmap(bitmap: Bitmap, subject: String): String {
+        val (imagePath, thumbPath) = withContext(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            val imgFile = ImageUtils.compressForUpload(
+                context = context,
+                bitmap = bitmap,
+                name = "upload_$now.jpg"
+            )
+            val thumbFile = ImageUtils.saveToCacheFile(
+                context, bitmap, "thumb_$now.jpg", 60
+            )
+            imgFile.absolutePath to thumbFile.absolutePath
+        }
+        val taskId = UUID.randomUUID().toString()
+        val task = TaskEntity(
+            id = taskId,
+            subject = normalizeSubject(subject),
+            status = "PENDING",
+            thumbnailPath = thumbPath,
+            imagePath = imagePath
+        )
+        app.taskRepository.insert(task)
+        UploadWorker.enqueue(context, taskId)
+        return taskId
+    }
 
     fun clearAll() {
         cropSegments.clear()
@@ -53,7 +84,6 @@ fun HomeworkApp() {
         selectedImageUri.clear()
         cropTargetIndex.intValue = -1
         ResultHolder.latestResult = null
-        ResultHolder.filledImageBase64 = null
     }
 
     /** 统一的 tab 切换：清栈到 capture，再跳目标 */
@@ -64,9 +94,23 @@ fun HomeworkApp() {
         }
     }
 
+    fun submitBatchImages(uris: List<Uri>, subject: String) {
+        if (uris.isEmpty()) return
+        scope.launch {
+            val bitmaps = withContext(Dispatchers.IO) {
+                uris.mapNotNull { uri -> ImageUtils.loadBitmap(context, uri) }
+            }
+            bitmaps.forEach { bitmap ->
+                createTaskFromBitmap(bitmap, subject)
+            }
+            clearAll()
+            navigateToTab("taskList")
+        }
+    }
+
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    val showBottomBar = currentRoute in listOf("capture", "taskList")
+    val showBottomBar = currentRoute in listOf("capture", "taskList", "settings")
 
     Scaffold(
         bottomBar = {
@@ -96,6 +140,8 @@ fun HomeworkApp() {
         ) {
             composable("capture") {
                 CaptureScreen(
+                    selectedSubject = selectedSubject,
+                    onSubjectSelected = { selectedSubject = normalizeSubject(it) },
                     onImageSelected = { uri ->
                         cropSegments.add(uri)
                         originalUris.add(uri)
@@ -109,6 +155,9 @@ fun HomeworkApp() {
                         if (navController.currentDestination?.route == "capture") {
                             navController.navigate("merge")
                         }
+                    },
+                    onBatchImagesSelected = { uris ->
+                        submitBatchImages(uris, selectedSubject)
                     }
                 )
             }
@@ -173,22 +222,7 @@ fun HomeworkApp() {
                     },
                     onSubmitTask = { bitmap ->
                         scope.launch {
-                            val (imagePath, thumbPath) = withContext(Dispatchers.IO) {
-                                val imgFile = ImageUtils.compressForUpload(context, bitmap)
-                                val thumbFile = ImageUtils.saveToCacheFile(
-                                    context, bitmap, "thumb_${System.currentTimeMillis()}.jpg", 60
-                                )
-                                imgFile.absolutePath to thumbFile.absolutePath
-                            }
-                            val taskId = UUID.randomUUID().toString()
-                            val task = TaskEntity(
-                                id = taskId,
-                                status = "PENDING",
-                                thumbnailPath = thumbPath,
-                                imagePath = imagePath
-                            )
-                            app.taskRepository.insert(task)
-                            UploadWorker.enqueue(context, taskId)
+                            createTaskFromBitmap(bitmap, selectedSubject)
                             clearAll()
                             navigateToTab("taskList")
                         }
@@ -203,6 +237,10 @@ fun HomeworkApp() {
                         navController.navigate("result/$taskId")
                     }
                 )
+            }
+
+            composable("settings") {
+                SettingsScreen()
             }
 
             composable("result/{taskId}") { backStackEntry ->

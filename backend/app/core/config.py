@@ -52,10 +52,11 @@ class Settings:
     app_log_level: str = "INFO"
     app_log_output: str = "stdout"
     app_log_file: str = "logs/backend.log"
-    opencode_enabled: bool = False
-    opencode_timeout_sec: int = 25
-    opencode_model: str = ""
-    opencode_cmd: str = "opencode"
+    llm_enabled: bool = False
+    llm_timeout_sec: int = 25
+    llm_model: str = ""
+    llm_provider: str = ""
+    llm_raw_log_dir: str = "logs/llm"
     proxy_http: str = ""
     proxy_https: str = ""
     proxy_all: str = ""
@@ -65,7 +66,9 @@ class Settings:
     paddleocr_doc_parsing_api_url: str = ""
     paddleocr_access_token: str = ""
     paddleocr_timeout_sec: int = 120
-    opencode_raw_log_dir: str = "logs/opencode"
+    task_timeout_sec: int = 60
+    task_retention_sec: int = 600
+    task_job_dir: str = ""
 
 
 @lru_cache(maxsize=1)
@@ -77,10 +80,11 @@ def get_settings() -> Settings:
         app_log_level=os.getenv("HW_APP_LOG_LEVEL", "INFO"),
         app_log_output=os.getenv("HW_APP_LOG_OUTPUT", "stdout"),
         app_log_file=os.getenv("HW_APP_LOG_FILE", "logs/backend.log"),
-        opencode_enabled=os.getenv("HW_OPENCODE_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
-        opencode_timeout_sec=int(os.getenv("HW_OPENCODE_TIMEOUT_SEC", "25")),
-        opencode_model=os.getenv("HW_OPENCODE_MODEL", ""),
-        opencode_cmd=os.getenv("HW_OPENCODE_CMD", "opencode"),
+        llm_enabled=os.getenv("HW_LLM_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+        llm_timeout_sec=int(os.getenv("HW_LLM_TIMEOUT_SEC", "25")),
+        llm_model=os.getenv("HW_LLM_MODEL", ""),
+        llm_provider=os.getenv("HW_LLM_PROVIDER", ""),
+        llm_raw_log_dir=os.getenv("HW_LLM_RAW_LOG_DIR", "logs/llm"),
         proxy_http=os.getenv("HW_PROXY_HTTP", ""),
         proxy_https=os.getenv("HW_PROXY_HTTPS", ""),
         proxy_all=os.getenv("HW_PROXY_ALL", ""),
@@ -91,5 +95,7 @@ def get_settings() -> Settings:
         paddleocr_doc_parsing_api_url=os.getenv("PADDLEOCR_DOC_PARSING_API_URL", "").strip(),
         paddleocr_access_token=os.getenv("PADDLEOCR_ACCESS_TOKEN", "").strip(),
         paddleocr_timeout_sec=int(os.getenv("PADDLEOCR_TIMEOUT", "120")),
-        opencode_raw_log_dir=os.getenv("HW_OPENCODE_RAW_LOG_DIR", "logs/opencode"),
+        task_timeout_sec=int(os.getenv("HW_TASK_TIMEOUT_SEC", "60")),
+        task_retention_sec=int(os.getenv("HW_TASK_RETENTION_SEC", "600")),
+        task_job_dir=os.getenv("HW_TASK_JOB_DIR", "").strip(),
     )

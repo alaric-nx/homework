@@ -6,16 +6,17 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface TaskDao {
 
-    // 列表页只需要轻量字段，避免把 resultJson/filledImageBase64 大字段全部加载导致卡顿或状态不刷新
+    // 列表页只需要轻量字段，避免把 resultJson 大字段全部加载导致卡顿或状态不刷新
     @Query(
         """
         SELECT
             id,
+            subject,
+            modelName,
             status,
             thumbnailPath,
             imagePath,
             NULL AS resultJson,
-            NULL AS filledImageBase64,
             errorMessage,
             createdAt,
             updatedAt
@@ -43,4 +44,7 @@ interface TaskDao {
     /** 获取最早的任务（用于超限淘汰） */
     @Query("SELECT * FROM tasks ORDER BY createdAt ASC LIMIT 1")
     suspend fun oldest(): TaskEntity?
+
+    @Query("SELECT * FROM tasks")
+    suspend fun getAll(): List<TaskEntity>
 }

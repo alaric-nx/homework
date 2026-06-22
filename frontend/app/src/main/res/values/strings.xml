@@ -11,9 +11,13 @@
     <string name="retry">重试</string>
     <string name="back">返回</string>
     <string name="question_meaning">题目理解</string>
+    <string name="question_requirement">题目要求</string>
     <string name="reference_answer">参考答案</string>
     <string name="explanation">讲解</string>
-    <string name="vocabulary">词汇</string>
+    <string name="vocabulary">知识点</string>
+    <string name="learning_points">知识点</string>
+    <string name="solution_steps">解题步骤</string>
+    <string name="read_units">可朗读内容</string>
     <string name="tap_to_speak">点击发音</string>
     <string name="more_pronunciation">更多点读</string>
     <string name="upload_failed">上传失败，请重试</string>
@@ -23,7 +27,7 @@
     <string name="move_down">下移</string>
     <string name="delete">删除</string>
     <string name="pronunciation_word_tip">释义</string>
-    <string name="pronunciation_unknown">暂无释义</string>
+    <string name="pronunciation_unknown">暂无解释</string>
     <string name="pronunciation_voice">朗读</string>
     <string name="pronunciation_translate">翻译</string>
     <string name="pronunciation_translation_unknown">暂无翻译</string>

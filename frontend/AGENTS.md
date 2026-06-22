@@ -1,63 +1,185 @@
 # AGENTS.md (frontend)
 
 ## 目录职责
+
 本目录负责 Android 原生客户端（Kotlin + Jetpack Compose）：
-- 拍照/导入
-- 裁剪（合并页内单张裁剪）
-- 多图排序与合并
-- 上传前图片压缩
-- 异步提交后端（WorkManager 后台执行）
-- 任务列表（历史记录、重试、删除）
-- 展示解析结果（含填写后题图缩放）
-- 点击词/句本地 TTS 发音
+
+- 拍照 / 相册导入。
+- 题图裁剪。
+- 多图排序与合并。
+- 上传前图片压缩。
+- 批量解析入口。
+- 异步提交后端并轮询任务。
+- 任务列表与历史记录。
+- 展示 JSON v4 解析结果。
+- 参考答案分段高亮。
+- 本地 `TextToSpeech` 点读。
 
 ## 技术约束
+
 - 平台：Android 原生
 - 语言：Kotlin
 - UI：Jetpack Compose
-- 语音：Android `TextToSpeech`（延迟初始化，Activity context，多引擎回退）
-- 网络：OkHttp，SSL 证书忽略，readTimeout 120s
+- 语音：Android `TextToSpeech`
+- 网络：OkHttp，readTimeout 120s
 - 后端地址：`https://hs.for2.top:44443`
-- API：`POST /v1/homework/parse-fill?expected_type=english`，Content-Type: image/jpeg，raw body
-- 数据库：Room（任务持久化，最多 10 条，自动淘汰最早记录）
-- 后台任务：WorkManager（UploadWorker，自动重试 1 次 EXPONENTIAL backoff，失败后手动重试）
+- 数据库：Room，任务持久化最多 10 条
+- 后台任务：WorkManager
 
-## 功能状态
-- [x] 前端技术路线已确定（Kotlin 原生）
-- [x] 本地 TTS 方案已确定（TextToSpeech，延迟初始化 + 多引擎回退）
-- [x] 相机拍照与相册导入（单选/多选）
-- [x] 裁剪能力（合并页内单张裁剪，ContentScale.Fit 坐标精确映射）
-- [x] 多图合并（按顺序拼接为完整题图）
-- [x] 上传前图片压缩（长边 1920px + JPEG 85%）
-- [x] 上传接口对接（ApiResponse 外层包装、unit_type/reason 字段映射）
-- [x] 结果页（题意、答案、讲解、词汇、点读、填写后题图 base64）
-- [x] 填写后题图双指缩放拖动（clipToBounds 限制框内，1x~5x）
-- [x] 异步任务队列（WorkManager 后台执行，息屏/切后台不中断）
-- [x] 任务列表页（历史记录，最多 10 条，单删/全删/手动重试）
-- [x] 底部导航栏（拍题 / 任务列表双 Tab）
-- [x] 结果数据持久化（Room 数据库，按 taskId 读取）
-- [x] 多任务并行执行（每个 Worker 独立 enqueue）
+## 学科入口
 
-## 与后端接口约定
-- 入参：合并压缩后的题图（image/jpeg raw body）
-- 出参：`{ result: { question_meaning_zh, reference_answer, explanation_zh, key_vocabulary, speak_units, uncertainty }, filled_image_base64, filled_image_path }`
-- speak_units 字段：`unit_type`（非 type）
-- uncertainty 字段：`reason`（非 warning）
+`subject` 取值：
+
+- `general`：通用，默认值。
+- `english`：英语。
+- `liberal_arts`：文科。
+- `science`：理科。
+
+规则：
+
+- 用户先选择学科，再选择 `拍照解析`、`多图合并` 或 `批量解析`。
+- 创建任务时保存当前 `subject`。
+- 重新解题必须沿用任务保存的 `subject`，不能使用页面当前临时选择值。
+- `UploadWorker` 从任务读取 `subject` 并传给后端。
+
+## API
+
+异步提交：
+
+```text
+POST /v1/homework/parse?subject=<general|english|liberal_arts|science>&model=<可选模型名>&force=<可选>
+Content-Type: image/jpeg
+Body: raw JPEG bytes
+```
+
+轮询：
+
+```text
+GET /v1/homework/tasks/{task_id}
+```
+
+完成响应中的 `result` 使用 JSON v4。
+
+前端任务成功的最低要求：
+
+- `result.subject` 非空。
+- `result.question_blocks` 非空。
+- `result.answer_items` 非空。
+
+缺少以上字段时，前端标记任务失败，并提示后端未部署当前 JSON v4 契约。
+
+## JSON v4 前端模型
+
+主要模型：
+
+```kotlin
+data class ParseResult(
+    val schema_version: String = "4.0",
+    val subject: String = "general",
+    val question_meaning_zh: String = "",
+    val question_blocks: List<QuestionBlock> = emptyList(),
+    val answer_items: List<AnswerItem> = emptyList(),
+    val student_answer_reviews: List<StudentAnswerReview> = emptyList(),
+    val solution_steps: List<SolutionStep> = emptyList(),
+    val explanation_zh: String = "",
+    val learning_points: List<LearningPoint> = emptyList(),
+    val uncertainty: Uncertainty = Uncertainty()
+)
+```
+
+旧字段不作为正式消费来源：
+
+- `question_instruction`
+- `answer_lines`
+- `read_units`
+- `reference_answer`
+
+## 结果页展示策略
+
+结果页顺序：
+
+1. 题目原图。
+2. 不确定性提示。
+3. 批改总览。
+4. 题目理解。
+5. 按 `question_blocks` 展示逐题报告。
+6. 全局讲解 / 总结。
+7. 知识点。
+
+批改总览：
+
+- 保留在结果页前部。
+- 汇总展示错题、看不清、未作答题号。
+- 只做“一眼看到问题题号”的总览，不放详细分析。
+
+逐题报告：
+
+- 每个 `question_blocks[]` 是一个题目卡片。
+- 卡片内先展示对应 `answer_items`。
+- `solution_steps` 按 `block_id` 归到对应题目卡片，直接展示在答案后面，标题为“题解”。
+- 当同一题卡内有多条答案时，前端按题号把对应 `solution_steps` 插到该答案后面；无法匹配题号的题解保留在题卡末尾。
+- `student_answer_reviews` 的短批改说明贴近对应答案展示。
+- 全局 `explanation_zh` 只展示整体总结、共性提醒，不承担逐题题解。
+- 逐题题卡使用中性浅灰分层、左侧灰色分隔条和标题灰底增强分割；避免高饱和亮色抢占答案、纠错和批改状态的视觉优先级。
+
+题面辅助内容：
+
+- `content_items` 是结构化题面数据，不等于所有学科都要展示。
+- `science`：默认不展示题面辅助内容，只展示答案、题解、讲解和知识点。
+- `general`：默认不展开题面辅助内容。
+- `english`：展示题目要求、例句、场景、短文、对话、词库、选项，并支持朗读。
+- `liberal_arts`：展示材料、对话、图中文字等有阅读价值的内容。
+
+数学公式：
+
+- `answer_items.display.mode=math_block` 时使用数学块展示。
+- 前端会把常见 LaTeX 命令清洗为可读文本，如 `\frac`、`\pi`、`\Rightarrow`、`\times`、`^\circ`。
+- `solution_steps[].formula` 也会做同样清洗。
+- 简单公式应优先由后端返回 Unicode / 纯文本公式。
+
+知识点：
+
+- `learning_points` 展示标题使用 `知识点`。
+- 理科不展示发音。
+- 英语可展示 IPA。
+- 文科可展示拼音。
+
+## 拍题入口
+
+- `拍照解析`：单张题图，进入单图解析流程。
+- `多图合并`：多张图排序 / 裁剪 / 合并成一张题图后创建一个任务。
+- `批量解析`：多张图分别创建多个任务，不合并。
+
+批量解析规则：
+
+- 不新增后端接口。
+- 每张图片独立生成 `TaskEntity`。
+- 每张图片独立调用 `UploadWorker.enqueue`。
+- 单张失败不影响其他任务。
+- 提交后跳转任务列表。
+
+## 构建与测试
+
+在 `frontend/` 目录运行：
+
+```bash
+./gradlew :app:assembleDebug
+./gradlew :app:testDebugUnitTest
+```
+
+说明：
+
+- 当前默认打 debug APK。
+- 当前 `app/src` 主要使用 `main` 源集。
+- JDK 25 下 Kotlin 可能回退到 JVM_24 target，该警告无害。
 
 ## 关键文件
-- `HomeworkApp.kt`：导航（底部 Tab）与状态管理，异步任务提交
-- `CaptureScreen.kt`：拍照/选图
-- `CropScreen.kt`：裁剪（坐标映射 imageRect）
-- `MergeScreen.kt`：排序、合并、预览，提交任务（不再同步等待）
-- `ResultScreen.kt`：结果展示 + 填写后题图缩放 + TTS（从 Room 按 taskId 读取）
-- `TaskListScreen.kt`：任务列表（状态展示、重试、单删、全删）
-- `HomeworkModels.kt`：数据模型（ApiResponse/ParseResponse/SpeakUnit/Uncertainty）
-- `HomeworkApi.kt`：网络请求（SSL 忽略、raw body）
-- `TtsManager.kt`：TTS 管理（延迟初始化、多引擎回退）
-- `ImageUtils.kt`：图片工具（裁剪、合并、压缩）
-- `TaskEntity.kt`：Room Entity（任务持久化）
-- `TaskDao.kt`：Room DAO
-- `AppDatabase.kt`：Room Database 单例
-- `TaskRepository.kt`：任务仓库（CRUD + 超限淘汰）
-- `UploadWorker.kt`：WorkManager Worker（后台上传、自动重试 1 次）
-- `HomeworkApplication.kt`：Application（TTS + Database + TaskRepository）
+
+- `HomeworkModels.kt`：接口数据模型。
+- `HomeworkApi.kt`：网络请求。
+- `UploadWorker.kt`：上传、轮询和结果契约校验。
+- `ResultScreen.kt`：结果展示、答案高亮、逐题题解、TTS。
+- `CaptureScreen.kt`：拍照 / 选图和学科选择。
+- `TaskListScreen.kt`：任务列表。
+- `TtsManager.kt`：TTS 管理。
+- `TaskEntity.kt`：Room Entity。
