@@ -547,6 +547,8 @@ class NotebookStore:
     ) -> dict[str, Any]:
         self._ensure_student(tenant_id=tenant_id, student_id=student_id)
         self._ensure_task(tenant_id=tenant_id, student_id=student_id, task_id=task_id)
+        if crop_asset_id:
+            self._ensure_asset(tenant_id=tenant_id, asset_id=crop_asset_id)
         now = _now()
         block_id = _new_id("blk")
         with self._connect() as conn:
@@ -596,6 +598,44 @@ class NotebookStore:
                 tenant_id=tenant_id,
                 student_id=student_id,
                 task_block_id=block_id,
+                conn=conn,
+            )
+
+    def update_task_block_crop(
+        self,
+        *,
+        tenant_id: str,
+        student_id: str,
+        task_block_id: str,
+        crop_asset_id: str,
+        bbox: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        crop_asset_id = crop_asset_id.strip()
+        if not crop_asset_id:
+            raise AppError("INVALID_REQUEST", "crop_asset_id is required.")
+        self._ensure_asset(tenant_id=tenant_id, asset_id=crop_asset_id)
+        self._ensure_task_block(tenant_id=tenant_id, student_id=student_id, task_block_id=task_block_id)
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE task_blocks
+                SET crop_asset_id = ?, bbox_json = COALESCE(?, bbox_json), updated_at = ?
+                WHERE id = ? AND tenant_id = ? AND student_id = ? AND deleted_at IS NULL
+                """,
+                (
+                    crop_asset_id,
+                    json.dumps(bbox, ensure_ascii=False) if bbox else None,
+                    now,
+                    task_block_id,
+                    tenant_id,
+                    student_id,
+                ),
+            )
+            return self._get_task_block_detail_with_conn(
+                tenant_id=tenant_id,
+                student_id=student_id,
+                task_block_id=task_block_id,
                 conn=conn,
             )
 

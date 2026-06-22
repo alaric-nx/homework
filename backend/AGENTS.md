@@ -48,6 +48,7 @@ DELETE /v1/students/{student_id}
 POST /v1/tasks
 GET  /v1/tasks/{task_id}
 
+PATCH /v1/task-blocks/{id}/crop
 POST /v1/task-blocks/{id}/collections/wrong
 DELETE /v1/task-blocks/{id}/collections/wrong
 POST /v1/task-blocks/{id}/collections/watched

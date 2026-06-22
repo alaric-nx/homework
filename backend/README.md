@@ -22,6 +22,7 @@ This branch focuses on:
 - student creation, listing, update, and soft delete
 - local asset upload/download with relative `storage_key`
 - original image asset binding on notebook tasks
+- crop image asset binding on task blocks
 - notebook task placeholder persistence
 - task block persistence
 - wrong / watched question collections
@@ -47,6 +48,7 @@ DELETE /v1/students/{id}
 POST /v1/notebook/tasks
 POST /v1/task-blocks
 GET  /v1/task-blocks/{id}
+PATCH /v1/task-blocks/{id}/crop
 
 POST   /v1/task-blocks/{id}/collections/wrong
 DELETE /v1/task-blocks/{id}/collections/wrong

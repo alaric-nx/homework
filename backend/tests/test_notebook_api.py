@@ -202,9 +202,32 @@ def test_asset_upload_download_and_task_binding(tmp_path) -> None:
         )
         assert block_resp.status_code == 200
         assert block_resp.json()["original_asset_id"] == asset_id
+        block_id = block_resp.json()["id"]
+
+        crop_asset_resp = client.post(
+            "/v1/assets",
+            headers={**headers, "Content-Type": "image/jpeg"},
+            params={"owner_type": "task_block", "owner_id": block_id, "asset_type": "question_crop"},
+            content=b"fake-crop-bytes",
+        )
+        assert crop_asset_resp.status_code == 200
+        crop_asset_id = crop_asset_resp.json()["id"]
+
+        crop_update_resp = client.patch(
+            f"/v1/task-blocks/{block_id}/crop",
+            headers=headers,
+            json={
+                "student_id": student_id,
+                "crop_asset_id": crop_asset_id,
+                "bbox": {"x": 1, "y": 2, "width": 30, "height": 40},
+            },
+        )
+        assert crop_update_resp.status_code == 200
+        assert crop_update_resp.json()["crop_asset_id"] == crop_asset_id
+        assert crop_update_resp.json()["bbox"]["width"] == 30
 
         client.post(
-            f"/v1/task-blocks/{block_resp.json()['id']}/collections/watched",
+            f"/v1/task-blocks/{block_id}/collections/watched",
             headers=headers,
             json={"student_id": student_id},
         )
@@ -217,6 +240,7 @@ def test_asset_upload_download_and_task_binding(tmp_path) -> None:
         task_block = collection_resp.json()["items"][0]["task_block"]
         assert task_block["subject"] == "english"
         assert task_block["original_asset_id"] == asset_id
+        assert task_block["crop_asset_id"] == crop_asset_id
     finally:
         app.dependency_overrides.clear()
 

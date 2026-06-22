@@ -4,6 +4,10 @@
 
 - 时间：2026-06-22
 - 更新类型：阶段完成
+- 摘要：补齐题块裁剪图资产绑定接口 `PATCH /v1/task-blocks/{id}/crop`，创建题块时校验裁剪资产归属；后端测试 25 个通过。
+
+- 时间：2026-06-22
+- 更新类型：阶段完成
 - 摘要：补齐本地资产上传/下载接口，解析成功后可绑定原图 `original_asset_id` 到 notebook task；后端测试 25 个通过。
 
 - 时间：2026-06-22
@@ -53,6 +57,8 @@
   - `GET /v1/assets/{asset_id}/content` 鉴权下载资产文件
   - 本地保存到 `data/objects/`，数据库保存相对 `storage_key`
   - notebook task 支持绑定 `original_asset_id`
+  - task block 支持绑定 `crop_asset_id`
+  - `PATCH /v1/task-blocks/{id}/crop` 可给已有题块补裁剪图资产
 - 新增题块集合能力：
   - `task_blocks`
   - `question_collections`
@@ -69,8 +75,8 @@
 
 当前进行中：
 
-- 裁剪图资产接入。
 - 头像资产接入。
+- 自动题目切图算法。
 
 阻塞项：
 

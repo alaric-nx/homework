@@ -17,6 +17,7 @@ import com.homework.assistant.data.model.TaskBlock
 import com.homework.assistant.data.model.SubmitResponse
 import com.homework.assistant.data.model.TaskStatusResponse
 import com.homework.assistant.data.model.UpdateStudentRequest
+import com.homework.assistant.data.model.UpdateTaskBlockCropRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -258,6 +259,24 @@ class HomeworkApi(
             path = "/v1/task-blocks/${URLEncoder.encode(blockId, "UTF-8")}" +
                 "?student_id=${URLEncoder.encode(studentId, "UTF-8")}",
             token = token,
+            responseClass = TaskBlock::class.java
+        )
+
+    suspend fun updateTaskBlockCrop(
+        token: String,
+        studentId: String,
+        blockId: String,
+        cropAssetId: String,
+        bbox: Map<String, Float>? = null
+    ): Result<TaskBlock> =
+        patchJson(
+            path = "/v1/task-blocks/${URLEncoder.encode(blockId, "UTF-8")}/crop",
+            token = token,
+            body = UpdateTaskBlockCropRequest(
+                student_id = studentId,
+                crop_asset_id = cropAssetId,
+                bbox = bbox
+            ),
             responseClass = TaskBlock::class.java
         )
 

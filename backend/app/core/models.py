@@ -272,6 +272,13 @@ class CreateTaskBlockRequest(BaseModel):
     crop_asset_id: str | None = None
 
 
+class UpdateTaskBlockCropRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    student_id: str = Field(min_length=1)
+    crop_asset_id: str = Field(min_length=1)
+    bbox: dict | None = None
+
+
 class SetCollectionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     student_id: str = Field(min_length=1)

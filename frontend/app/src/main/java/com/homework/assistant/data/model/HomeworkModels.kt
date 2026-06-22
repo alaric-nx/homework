@@ -244,6 +244,12 @@ data class SetCollectionRequest(
     val note: String? = null
 )
 
+data class UpdateTaskBlockCropRequest(
+    val student_id: String,
+    val crop_asset_id: String,
+    val bbox: Map<String, Float>? = null
+)
+
 data class CollectionListResponse(
     val items: List<QuestionCollection> = emptyList()
 )

@@ -170,6 +170,7 @@ fun NotebookScreen(studentId: String) {
                 item = detail,
                 token = token,
                 assetUrl = detail.task_block.original_asset_id?.let { api.assetContentUrl(it) },
+                cropAssetUrl = detail.task_block.crop_asset_id?.let { api.assetContentUrl(it) },
                 onRemove = { removeFromCurrentCollection(detail) },
                 modifier = Modifier.fillMaxSize().padding(padding)
             )
@@ -341,6 +342,7 @@ private fun NotebookDetail(
     item: QuestionCollection,
     token: String,
     assetUrl: String?,
+    cropAssetUrl: String?,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -379,7 +381,7 @@ private fun NotebookDetail(
                     DetailSection(title = "答案", content = block.answer_text, highlight = true)
                     DetailSection(title = "题解", content = block.solution_text)
                     OriginalImageSection(assetUrl = assetUrl, token = token)
-                    CropPlaceholder(block)
+                    CropImageSection(block = block, assetUrl = cropAssetUrl, token = token)
                     Spacer(modifier = Modifier.height(4.dp))
                     Button(onClick = onRemove, modifier = Modifier.fillMaxWidth()) {
                         Text(if (item.collection_type == "wrong") "移出错题集" else "取消关注")
@@ -398,19 +400,7 @@ private fun OriginalImageSection(assetUrl: String?, token: String) {
         if (assetUrl.isNullOrBlank()) {
             Text("暂无原图资产", color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            val context = LocalContext.current
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(assetUrl)
-                    .addHeader("Authorization", "Bearer $token")
-                    .crossfade(true)
-                    .build(),
-                contentDescription = "题目原图",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(260.dp)
-            )
+            AuthAssetImage(assetUrl = assetUrl, token = token, contentDescription = "题目原图", heightDp = 260)
         }
     }
 }
@@ -434,17 +424,36 @@ private fun DetailSection(title: String, content: String?, highlight: Boolean = 
 }
 
 @Composable
-private fun CropPlaceholder(block: TaskBlock) {
+private fun CropImageSection(block: TaskBlock, assetUrl: String?, token: String) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         HorizontalDivider()
         Text("题目切图", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-        Text(
-            if (block.crop_asset_id.isNullOrBlank()) {
-                "暂未生成独立题目切图"
-            } else {
-                "切图资产：${block.crop_asset_id}"
-            },
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        if (assetUrl.isNullOrBlank()) {
+            Text("暂未生成独立题目切图", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            AuthAssetImage(assetUrl = assetUrl, token = token, contentDescription = "题目切图", heightDp = 220)
+        }
     }
+}
+
+@Composable
+private fun AuthAssetImage(
+    assetUrl: String,
+    token: String,
+    contentDescription: String,
+    heightDp: Int
+) {
+    val context = LocalContext.current
+    AsyncImage(
+        model = ImageRequest.Builder(context)
+            .data(assetUrl)
+            .addHeader("Authorization", "Bearer $token")
+            .crossfade(true)
+            .build(),
+        contentDescription = contentDescription,
+        contentScale = ContentScale.Fit,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(heightDp.dp)
+    )
 }

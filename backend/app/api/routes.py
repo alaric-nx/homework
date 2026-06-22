@@ -23,6 +23,7 @@ from app.core.models import (
     TaskStatus,
     TaskStatusResponse,
     UpdateStudentRequest,
+    UpdateTaskBlockCropRequest,
 )
 from app.services.notebook_store import CollectionType, NotebookStore
 from app.services.parse_pipeline import ParsePipeline
@@ -209,6 +210,22 @@ async def get_task_block(
         tenant_id=auth["tenant_id"],
         student_id=student_id,
         task_block_id=task_block_id,
+    )
+
+
+@router.patch("/v1/task-blocks/{task_block_id}/crop")
+async def update_task_block_crop(
+    task_block_id: str,
+    payload: UpdateTaskBlockCropRequest,
+    auth: Annotated[dict, Depends(_require_auth)],
+    notebook_store: Annotated[NotebookStore, Depends(get_notebook_store)],
+) -> dict:
+    return notebook_store.update_task_block_crop(
+        tenant_id=auth["tenant_id"],
+        student_id=payload.student_id,
+        task_block_id=task_block_id,
+        crop_asset_id=payload.crop_asset_id,
+        bbox=payload.bbox,
     )
 
 
