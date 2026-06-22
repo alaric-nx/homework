@@ -262,6 +262,7 @@ fun ResultScreen(
 
     var result by remember { mutableStateOf<ParseResult?>(null) }
     var originalImagePath by remember { mutableStateOf<String?>(null) }
+    var originalAssetId by remember { mutableStateOf<String?>(null) }
     var taskStudentId by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
     var activeTip by remember { mutableStateOf<WordTipTarget?>(null) }
@@ -271,6 +272,7 @@ fun ResultScreen(
     LaunchedEffect(taskId) {
         val task = repo.getById(taskId)
         originalImagePath = task?.imagePath
+        originalAssetId = task?.originalAssetId
         taskStudentId = task?.studentId.orEmpty().ifBlank { settingsStore.getCurrentStudentId() }
         if (task != null && task.resultJson != null) {
             result = gson.fromJson(task.resultJson, ParseResult::class.java)
@@ -319,7 +321,8 @@ fun ResultScreen(
             token = token,
             studentId = studentId,
             taskId = taskId,
-            subject = parsedResult.subject
+            subject = parsedResult.subject,
+            originalAssetId = originalAssetId
         )
         val taskError = taskResult.exceptionOrNull()
         if (taskError != null) return Result.failure(taskError)
@@ -412,7 +415,8 @@ fun ResultScreen(
             token = token,
             studentId = taskStudentId,
             taskId = taskId,
-            subject = result?.subject ?: "general"
+            subject = result?.subject ?: "general",
+            originalAssetId = originalAssetId
         )
         val taskSyncError = taskSyncResult.exceptionOrNull()
         if (taskSyncError != null) {

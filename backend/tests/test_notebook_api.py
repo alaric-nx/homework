@@ -147,6 +147,80 @@ def test_register_login_students_and_collections(tmp_path) -> None:
         app.dependency_overrides.clear()
 
 
+def test_asset_upload_download_and_task_binding(tmp_path) -> None:
+    client = _client(tmp_path)
+    try:
+        token = client.post(
+            "/v1/auth/register",
+            json={"username": "asset-parent", "password": "secret123"},
+        ).json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        student_id = client.post(
+            "/v1/students",
+            headers=headers,
+            json={"name": "小红"},
+        ).json()["id"]
+
+        asset_resp = client.post(
+            "/v1/assets",
+            headers={**headers, "Content-Type": "image/jpeg"},
+            params={"owner_type": "parse_task", "owner_id": "local-task-1", "asset_type": "original_image"},
+            content=b"fake-jpeg-bytes",
+        )
+        assert asset_resp.status_code == 200
+        asset_id = asset_resp.json()["id"]
+        assert asset_resp.json()["storage_key"].startswith("objects/")
+
+        content_resp = client.get(f"/v1/assets/{asset_id}/content", headers=headers)
+        assert content_resp.status_code == 200
+        assert content_resp.content == b"fake-jpeg-bytes"
+
+        task_resp = client.post(
+            "/v1/notebook/tasks",
+            headers=headers,
+            json={
+                "task_id": "local-task-1",
+                "student_id": student_id,
+                "subject": "english",
+                "original_asset_id": asset_id,
+                "result": {},
+            },
+        )
+        assert task_resp.status_code == 200
+        assert task_resp.json()["original_asset_id"] == asset_id
+
+        block_resp = client.post(
+            "/v1/task-blocks",
+            headers=headers,
+            json={
+                "student_id": student_id,
+                "task_id": "local-task-1",
+                "source_block_id": "q1",
+                "title": "第1题",
+            },
+        )
+        assert block_resp.status_code == 200
+        assert block_resp.json()["original_asset_id"] == asset_id
+
+        client.post(
+            f"/v1/task-blocks/{block_resp.json()['id']}/collections/watched",
+            headers=headers,
+            json={"student_id": student_id},
+        )
+        collection_resp = client.get(
+            "/v1/question-collections",
+            headers=headers,
+            params={"type": "watched", "student_id": student_id},
+        )
+        assert collection_resp.status_code == 200
+        task_block = collection_resp.json()["items"][0]["task_block"]
+        assert task_block["subject"] == "english"
+        assert task_block["original_asset_id"] == asset_id
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_notebook_requires_auth(tmp_path) -> None:
     client = _client(tmp_path)
     try:

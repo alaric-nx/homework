@@ -1,6 +1,7 @@
 package com.homework.assistant.data.remote
 
 import com.google.gson.Gson
+import com.homework.assistant.data.model.AssetResponse
 import com.homework.assistant.data.model.AuthResponse
 import com.homework.assistant.data.model.CollectionListResponse
 import com.homework.assistant.data.model.CreateNotebookTaskRequest
@@ -121,6 +122,42 @@ class HomeworkApi(
             responseClass = Student::class.java
         )
 
+    suspend fun uploadAsset(
+        token: String,
+        ownerType: String,
+        ownerId: String,
+        assetType: String,
+        file: File,
+        contentType: String = "image/jpeg"
+    ): Result<AssetResponse> =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = "$baseUrl/v1/assets" +
+                    "?owner_type=${URLEncoder.encode(ownerType, "UTF-8")}" +
+                    "&owner_id=${URLEncoder.encode(ownerId, "UTF-8")}" +
+                    "&asset_type=${URLEncoder.encode(assetType, "UTF-8")}"
+                val request = Request.Builder()
+                    .url(url)
+                    .addAuth(token)
+                    .post(file.asRequestBody(contentType.toMediaType()))
+                    .build()
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        HttpStatusException(response.code, "服务器返回 ${response.code}\n$url")
+                    )
+                }
+                val responseBody = response.body?.string()
+                    ?: return@withContext Result.failure(IOException("响应为空"))
+                Result.success(gson.fromJson(responseBody, AssetResponse::class.java))
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    fun assetContentUrl(assetId: String): String =
+        "$baseUrl/v1/assets/${URLEncoder.encode(assetId, "UTF-8")}/content"
+
     suspend fun updateStudent(
         token: String,
         studentId: String,
@@ -171,7 +208,8 @@ class HomeworkApi(
         token: String,
         studentId: String,
         taskId: String,
-        subject: String
+        subject: String,
+        originalAssetId: String? = null
     ): Result<Map<*, *>> =
         postJson(
             path = "/v1/notebook/tasks",
@@ -180,6 +218,7 @@ class HomeworkApi(
                 task_id = taskId,
                 student_id = studentId,
                 subject = subject,
+                original_asset_id = originalAssetId?.takeIf { it.isNotBlank() },
                 result = emptyMap()
             ),
             responseClass = Map::class.java

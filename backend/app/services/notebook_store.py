@@ -415,9 +415,12 @@ class NotebookStore:
         subject: str,
         task_id: str | None = None,
         status: str = "completed",
+        original_asset_id: str | None = None,
         result: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self._ensure_student(tenant_id=tenant_id, student_id=student_id)
+        if original_asset_id:
+            self._ensure_asset(tenant_id=tenant_id, asset_id=original_asset_id)
         now = _now()
         task_id = (task_id or "").strip() or _new_id("task")
         with self._connect() as conn:
@@ -429,12 +432,14 @@ class NotebookStore:
                 conn.execute(
                     """
                     UPDATE parse_tasks
-                    SET subject = ?, status = ?, result_json = ?, updated_at = ?, completed_at = ?
+                    SET subject = ?, status = ?, original_asset_id = COALESCE(?, original_asset_id),
+                        result_json = ?, updated_at = ?, completed_at = ?
                     WHERE id = ?
                     """,
                     (
                         subject,
                         status,
+                        _clean(original_asset_id),
                         json.dumps(result or {}, ensure_ascii=False),
                         now,
                         now if status == "completed" else None,
@@ -446,9 +451,9 @@ class NotebookStore:
                     """
                     INSERT INTO parse_tasks(
                         id, tenant_id, student_id, created_by_user_id, subject, status,
-                        result_json, created_at, updated_at, completed_at
+                        original_asset_id, result_json, created_at, updated_at, completed_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         task_id,
@@ -457,6 +462,7 @@ class NotebookStore:
                         user_id,
                         subject,
                         status,
+                        _clean(original_asset_id),
                         json.dumps(result or {}, ensure_ascii=False),
                         now,
                         now,
@@ -464,6 +470,66 @@ class NotebookStore:
                     ),
                 )
             return self._get_parse_task(task_id, conn=conn)
+
+    def create_asset(
+        self,
+        *,
+        tenant_id: str,
+        owner_type: str,
+        owner_id: str,
+        asset_type: str,
+        content_type: str | None,
+        data: bytes,
+    ) -> dict[str, Any]:
+        owner_type = owner_type.strip()
+        owner_id = owner_id.strip()
+        asset_type = asset_type.strip()
+        if not owner_type or not owner_id or not asset_type:
+            raise AppError("INVALID_REQUEST", "owner_type, owner_id and asset_type are required.")
+        if not data:
+            raise AppError("INVALID_REQUEST", "asset body is empty.")
+        now = _now()
+        asset_id = _new_id("ast")
+        extension = _asset_extension(content_type)
+        storage_key = f"objects/{asset_id}{extension}"
+        path = self.data_dir / storage_key
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        sha256 = hashlib.sha256(data).hexdigest()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO assets(
+                    id, tenant_id, owner_type, owner_id, asset_type, storage_provider,
+                    storage_key, content_type, size_bytes, sha256, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, 'local', ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    asset_id,
+                    tenant_id,
+                    owner_type,
+                    owner_id,
+                    asset_type,
+                    storage_key,
+                    _clean(content_type) or "application/octet-stream",
+                    len(data),
+                    sha256,
+                    now,
+                    now,
+                ),
+            )
+            return self._get_asset(asset_id, conn=conn)
+
+    def get_asset_file(self, *, tenant_id: str, asset_id: str) -> tuple[Path, str]:
+        with self._connect() as conn:
+            asset = self._get_asset(asset_id, conn=conn)
+        if asset["tenant_id"] != tenant_id:
+            raise AppError("NOT_FOUND", "asset not found.")
+        path = self.data_dir / asset["storage_key"]
+        if not path.exists() or not path.is_file():
+            raise AppError("NOT_FOUND", "asset file not found.")
+        return path, asset.get("content_type") or "application/octet-stream"
 
     def create_task_block(
         self,
@@ -624,6 +690,7 @@ class NotebookStore:
                 SELECT
                     qc.*,
                     pt.subject,
+                    pt.original_asset_id,
                     tb.title,
                     tb.question_text,
                     tb.answer_text,
@@ -749,7 +816,7 @@ class NotebookStore:
     def _get_task_block(self, task_block_id: str, *, conn: sqlite3.Connection) -> dict[str, Any]:
         row = conn.execute(
             """
-            SELECT tb.*, pt.subject
+            SELECT tb.*, pt.subject, pt.original_asset_id
             FROM task_blocks tb
             LEFT JOIN parse_tasks pt ON pt.id = tb.task_id
             WHERE tb.id = ? AND tb.deleted_at IS NULL
@@ -761,6 +828,15 @@ class NotebookStore:
         data = _row_dict(row)
         data["bbox"] = json.loads(data["bbox_json"]) if data.get("bbox_json") else None
         return data
+
+    def _get_asset(self, asset_id: str, *, conn: sqlite3.Connection) -> dict[str, Any]:
+        row = conn.execute(
+            "SELECT * FROM assets WHERE id = ? AND deleted_at IS NULL",
+            (asset_id,),
+        ).fetchone()
+        if row is None:
+            raise AppError("NOT_FOUND", "asset not found.")
+        return _row_dict(row)
 
     def _get_collection(self, collection_id: str, *, conn: sqlite3.Connection) -> dict[str, Any]:
         row = conn.execute("SELECT * FROM question_collections WHERE id = ?", (collection_id,)).fetchone()
@@ -785,6 +861,15 @@ class NotebookStore:
             ).fetchone()
         if row is None:
             raise AppError("NOT_FOUND", "task not found.")
+
+    def _ensure_asset(self, *, tenant_id: str, asset_id: str) -> None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM assets WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL",
+                (asset_id, tenant_id),
+            ).fetchone()
+        if row is None:
+            raise AppError("NOT_FOUND", "asset not found.")
 
     def _ensure_task_block(self, *, tenant_id: str, student_id: str, task_block_id: str) -> dict[str, Any]:
         with self._connect() as conn:
@@ -818,6 +903,16 @@ def _clean(value: str | None) -> str | None:
         return None
     value = value.strip()
     return value or None
+
+
+def _asset_extension(content_type: str | None) -> str:
+    normalized = (content_type or "").split(";", 1)[0].strip().lower()
+    return {
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+    }.get(normalized, ".bin")
 
 
 def _hash_password(password: str) -> str:
@@ -857,6 +952,7 @@ def _collection_row(row: sqlite3.Row) -> dict[str, Any]:
         "task_id": data.pop("task_id"),
         "source_block_id": data.pop("source_block_id"),
         "subject": data.pop("subject", None),
+        "original_asset_id": data.pop("original_asset_id", None),
         "title": data.pop("title"),
         "question_text": data.pop("question_text"),
         "answer_text": data.pop("answer_text"),

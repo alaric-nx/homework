@@ -37,6 +37,9 @@ GET  /v1/auth/me
 
 GET  /v1/tenants/me
 
+POST /v1/assets
+GET  /v1/assets/{asset_id}/content
+
 POST /v1/students
 GET  /v1/students
 PATCH /v1/students/{student_id}

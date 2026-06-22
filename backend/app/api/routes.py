@@ -6,7 +6,7 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from app.api.deps import get_notebook_store, get_pipeline, get_task_store
 from app.core.errors import AppError
@@ -100,6 +100,39 @@ async def list_students(
     return {"items": notebook_store.list_students(tenant_id=auth["tenant_id"])}
 
 
+@router.post("/v1/assets")
+async def create_asset(
+    request: Request,
+    auth: Annotated[dict, Depends(_require_auth)],
+    notebook_store: Annotated[NotebookStore, Depends(get_notebook_store)],
+    owner_type: str = Query(min_length=1),
+    owner_id: str = Query(min_length=1),
+    asset_type: str = Query(min_length=1),
+) -> dict:
+    body = await request.body()
+    return notebook_store.create_asset(
+        tenant_id=auth["tenant_id"],
+        owner_type=owner_type,
+        owner_id=owner_id,
+        asset_type=asset_type,
+        content_type=request.headers.get("content-type"),
+        data=body,
+    )
+
+
+@router.get("/v1/assets/{asset_id}/content")
+async def get_asset_content(
+    asset_id: str,
+    auth: Annotated[dict, Depends(_require_auth)],
+    notebook_store: Annotated[NotebookStore, Depends(get_notebook_store)],
+) -> FileResponse:
+    path, content_type = notebook_store.get_asset_file(
+        tenant_id=auth["tenant_id"],
+        asset_id=asset_id,
+    )
+    return FileResponse(path, media_type=content_type)
+
+
 @router.patch("/v1/students/{student_id}")
 async def update_student(
     student_id: str,
@@ -140,6 +173,7 @@ async def create_notebook_task(
         subject=payload.subject,
         task_id=payload.task_id,
         status=payload.status,
+        original_asset_id=payload.original_asset_id,
         result=payload.result,
     )
 

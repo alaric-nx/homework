@@ -255,6 +255,7 @@ class CreateNotebookTaskRequest(BaseModel):
     student_id: str = Field(min_length=1)
     subject: Literal["general", "english", "liberal_arts", "science"] = "general"
     status: str = "completed"
+    original_asset_id: str | None = None
     result: dict = Field(default_factory=dict)
 
 

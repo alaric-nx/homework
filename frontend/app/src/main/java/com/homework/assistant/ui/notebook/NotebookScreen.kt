@@ -43,9 +43,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.homework.assistant.data.local.SettingsStore
 import com.homework.assistant.data.model.QuestionCollection
 import com.homework.assistant.data.model.TaskBlock
@@ -164,6 +168,8 @@ fun NotebookScreen(studentId: String) {
         if (detail != null) {
             NotebookDetail(
                 item = detail,
+                token = token,
+                assetUrl = detail.task_block.original_asset_id?.let { api.assetContentUrl(it) },
                 onRemove = { removeFromCurrentCollection(detail) },
                 modifier = Modifier.fillMaxSize().padding(padding)
             )
@@ -333,6 +339,8 @@ private fun CollectionCard(
 @Composable
 private fun NotebookDetail(
     item: QuestionCollection,
+    token: String,
+    assetUrl: String?,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -370,6 +378,7 @@ private fun NotebookDetail(
                     DetailSection(title = "题目", content = block.question_text)
                     DetailSection(title = "答案", content = block.answer_text, highlight = true)
                     DetailSection(title = "题解", content = block.solution_text)
+                    OriginalImageSection(assetUrl = assetUrl, token = token)
                     CropPlaceholder(block)
                     Spacer(modifier = Modifier.height(4.dp))
                     Button(onClick = onRemove, modifier = Modifier.fillMaxWidth()) {
@@ -377,6 +386,31 @@ private fun NotebookDetail(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun OriginalImageSection(assetUrl: String?, token: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        HorizontalDivider()
+        Text("题目原图", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        if (assetUrl.isNullOrBlank()) {
+            Text("暂无原图资产", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            val context = LocalContext.current
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(assetUrl)
+                    .addHeader("Authorization", "Bearer $token")
+                    .crossfade(true)
+                    .build(),
+                contentDescription = "题目原图",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(260.dp)
+            )
         }
     }
 }

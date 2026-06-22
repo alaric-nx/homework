@@ -20,6 +20,8 @@ This branch focuses on:
 - bearer-token session storage, default token TTL 10 years
 - family tenant creation on registration
 - student creation, listing, update, and soft delete
+- local asset upload/download with relative `storage_key`
+- original image asset binding on notebook tasks
 - notebook task placeholder persistence
 - task block persistence
 - wrong / watched question collections
@@ -33,6 +35,9 @@ POST /v1/auth/login
 GET  /v1/auth/me
 
 GET  /v1/tenants/me
+
+POST /v1/assets
+GET  /v1/assets/{id}/content
 
 POST /v1/students
 GET  /v1/students

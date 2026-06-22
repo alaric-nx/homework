@@ -12,6 +12,7 @@ data class TaskEntity(
     val status: String,          // PENDING, RUNNING, SUCCESS, FAILED
     val thumbnailPath: String,   // 缩略图路径（合并后小图）
     val imagePath: String,       // 上传用的压缩图路径
+    val originalAssetId: String? = null,
     val resultJson: String? = null,
     val errorMessage: String? = null,
     val createdAt: Long = System.currentTimeMillis(),

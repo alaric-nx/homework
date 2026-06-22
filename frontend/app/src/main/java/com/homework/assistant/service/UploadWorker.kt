@@ -158,9 +158,11 @@ class UploadWorker(
                             Log.d(TAG, "Task $localTaskId completed, updating DB...")
                             val fresh = repo.getById(localTaskId)
                                 ?: return Result.failure()
+                            val originalAssetId = syncNotebookTask(fresh, parseResult.subject)
                             repo.update(
                                 fresh.copy(
                                     status = "SUCCESS",
+                                    originalAssetId = originalAssetId ?: fresh.originalAssetId,
                                     resultJson = resultJson,
                                     errorMessage = null,
                                     updatedAt = System.currentTimeMillis()
@@ -242,5 +244,41 @@ class UploadWorker(
                 updatedAt = System.currentTimeMillis()
             )
         )
+    }
+
+    private suspend fun syncNotebookTask(
+        task: com.homework.assistant.data.local.TaskEntity,
+        subject: String
+    ): String? {
+        val token = settings.getAuthToken()
+        val studentId = task.studentId.ifBlank { settings.getCurrentStudentId() }
+        if (token.isBlank() || studentId.isBlank()) {
+            return task.originalAssetId
+        }
+
+        val imageFile = File(task.imagePath)
+        var assetId = task.originalAssetId
+        if (assetId.isNullOrBlank() && imageFile.exists()) {
+            api.uploadAsset(
+                token = token,
+                ownerType = "parse_task",
+                ownerId = task.id,
+                assetType = "original_image",
+                file = imageFile
+            )
+                .onSuccess { assetId = it.id }
+                .onFailure { Log.w(TAG, "Task ${task.id} asset upload failed: ${it.message}") }
+        }
+
+        api.createNotebookTask(
+            token = token,
+            studentId = studentId,
+            taskId = task.id,
+            subject = subject,
+            originalAssetId = assetId
+        ).onFailure {
+            Log.w(TAG, "Task ${task.id} notebook task sync failed: ${it.message}")
+        }
+        return assetId
     }
 }

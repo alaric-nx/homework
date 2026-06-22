@@ -209,7 +209,21 @@ data class CreateNotebookTaskRequest(
     val student_id: String,
     val subject: String = "general",
     val status: String = "completed",
+    val original_asset_id: String? = null,
     val result: Map<String, String> = emptyMap()
+)
+
+data class AssetResponse(
+    val id: String = "",
+    val tenant_id: String = "",
+    val owner_type: String = "",
+    val owner_id: String = "",
+    val asset_type: String = "",
+    val storage_provider: String = "local",
+    val storage_key: String = "",
+    val content_type: String? = null,
+    val size_bytes: Long = 0,
+    val sha256: String? = null
 )
 
 data class CreateTaskBlockRequest(
@@ -252,6 +266,7 @@ data class TaskBlock(
     val task_id: String = "",
     val source_block_id: String = "",
     val subject: String? = null,
+    val original_asset_id: String? = null,
     val title: String = "",
     val question_text: String? = null,
     val answer_text: String? = null,
