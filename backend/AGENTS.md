@@ -23,7 +23,7 @@
 ## 设计原则
 
 - 业务表不存绝对磁盘路径，只存 `storage_key` 或资产引用。
-- 图片、头像、裁剪图统一进 `assets` 表。
+- 原图、裁剪图等题集图片资产统一进 `assets` 表。
 - 任务、错题集和关注集都必须带 `tenant_id`。
 - 错题以独立小题为单位，不以整张图片为单位。
 - 表结构尽量使用 PostgreSQL 兼容的通用字段与约束。
@@ -88,9 +88,9 @@ GET  /v1/question-collections?type=watched
 
 ## 题目切图预留
 
-- `task_blocks` 预留 `bbox_json` 与 `crop_asset_id`。
-- 当前阶段不实现裁剪算法。
-- 后续裁剪图作为 `assets` 记录保存，`task_blocks.crop_asset_id` 指向该资产。
+- `task_blocks` 使用 `bbox_json` 与 `crop_asset_id` 记录题目切图位置和资产。
+- 当前阶段支持裁剪图资产绑定与展示，不实现自动裁剪算法。
+- 裁剪图作为 `assets` 记录保存，`task_blocks.crop_asset_id` 指向该资产。
 
 ## 存储约定
 
