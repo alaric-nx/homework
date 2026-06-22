@@ -2,6 +2,10 @@
 
 ## 最近更新
 
+- 时间：2026-06-22
+- 更新类型：阶段完成
+- 摘要：完成 JSON v4 后端契约与逐题题解提示词收敛：`answer_items` 只放答案，逐题推理 / 计算 / 选项排除进入对应 `solution_steps`；后端已发布到 `root@tx:/opt/homework/backend` 并重启 `homework-backend.service`。
+
 - 时间：2026-06-17
 - 更新类型：阶段完成
 - 摘要：完成 review 收敛优化：保持 `answer_lines` 作为正式答案契约，收紧多题块 `block_id` 归一化，保留完整 `plain_text`，并修复 LLM 配置路径优先读取仓库内 `backend/.config/llm.json`。
@@ -139,3 +143,36 @@
 下一步：
 
 - 使用真实题图验证多题块归属和理科答案行质量。
+
+### 2026-06-22
+
+完成内容：
+
+- 后端正式契约升级为 JSON v4：
+  - `schema_version`
+  - `subject`
+  - `question_meaning_zh`
+  - `question_blocks`
+  - `answer_items`
+  - `student_answer_reviews`
+  - `solution_steps`
+  - `explanation_zh`
+  - `learning_points`
+  - `uncertainty`
+- 正式接口不再输出 `question_instruction`、`answer_lines`、`read_units`、`reference_answer`。
+- `question_blocks[].content_items` 承载题面可见内容，并要求按实际可见行拆分，不写固定个例行数。
+- `answer_items` 明确只放最终答案或必须填写的关键结果。
+- 逐题题解、推理、计算过程、选项排除和错因分析归入对应 `block_id` 的 `solution_steps`。
+- `explanation_zh` 改为全局总结、共性错因或整体提醒，不再堆逐题题解。
+- 数学公式提示词收紧：各学段和各类理科题中的常见公式优先输出 Android 可直接显示的 `plain_math`，不为简单公式输出 LaTeX 源码。
+- 后端回归测试通过：`pytest` 共 22 个测试。
+- 已发布到 `root@tx:/opt/homework/backend`，并重启 `homework-backend.service`。
+- 服务状态检查为 `active (running)`。
+
+阻塞项：
+
+- 无。
+
+下一步：
+
+- 使用真实理科题图验证 `answer_items` 是否只输出答案、逐题题解是否稳定进入 `solution_steps`。

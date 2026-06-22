@@ -7,39 +7,54 @@ import pytest
 from app.core.config import Settings
 from app.services.llm_client import LLMClient
 
-V3_PAYLOAD = {
+V4_PAYLOAD = {
+    "schema_version": "4.0",
     "subject": "english",
     "question_meaning_zh": "补全句子。\n把空格补成完整句子。",
-    "question_instruction": {
-        "text": "Complete the sentence.",
-        "meaning_zh": "补全句子。",
-        "confidence": 0.95,
-    },
     "question_blocks": [
         {
             "block_id": "q1",
+            "order": 1,
             "title": "第1题",
-            "question_instruction": {
-                "text": "Complete the sentence.",
-                "meaning_zh": "补全句子。",
-                "confidence": 0.95,
-            },
             "question_meaning_zh": "把空格补成完整句子。",
-        }
-    ],
-    "answer_lines": [
-        {
-            "block_id": "q1",
-            "number": "1",
-            "line_type": "fill_blank",
-            "plain_text": "I am a student.",
-            "segments": [
-                {"text": "I ", "role": "given"},
-                {"text": "am", "role": "answer"},
-                {"text": " a student.", "role": "given"},
+            "content_items": [
+                {
+                    "item_id": "q1-c1",
+                    "order": 1,
+                    "group_id": None,
+                    "type": "instruction",
+                    "text": "Complete the sentence.",
+                    "meaning_zh": "补全句子。",
+                    "language": "en",
+                    "speak_text": "Complete the sentence.",
+                    "speakable": True,
+                }
             ],
         }
     ],
+    "answer_items": [
+        {
+            "answer_id": "q1-a1",
+            "block_id": "q1",
+            "order": 1,
+            "number": "1",
+            "answer_type": "fill_blank",
+            "plain_text": "I am a student.",
+            "speak_text": "I am a student.",
+            "display": {
+                "mode": "inline_segments",
+                "format": "plain_text",
+                "latex": None,
+                "preserve_newlines": False,
+                "runs": [
+                    {"text": "I ", "role": "given"},
+                    {"text": "am", "role": "answer"},
+                    {"text": " a student.", "role": "given"},
+                ],
+            },
+        }
+    ],
+    "student_answer_reviews": [],
     "solution_steps": [],
     "explanation_zh": "be 动词和 I 搭配用 am。",
     "learning_points": [
@@ -47,42 +62,25 @@ V3_PAYLOAD = {
         {"block_id": "q1", "term": "am", "explanation_zh": "是", "pronunciation": "/æm/", "category": "word", "label": "vocabulary"},
         {"block_id": "q1", "term": "student", "explanation_zh": "学生", "pronunciation": "/ˈstuːdnt/", "category": "word", "label": "vocabulary"},
     ],
-    "read_units": [
-        {
-            "block_id": None,
-            "unit_type": "text", "label": "sentence",
-            "text": "把空格补成完整句子。",
-            "meaning_zh": "把空格补成完整句子。",
-        },
-        {
-            "block_id": "q1",
-            "unit_type": "text", "label": "sentence",
-            "text": "I am a student.",
-            "meaning_zh": "我是一名学生。",
-        },
-        {"block_id": "q1", "unit_type": "word", "label": "vocabulary", "text": "I", "meaning_zh": "我"},
-        {"block_id": "q1", "unit_type": "word", "label": "vocabulary", "text": "am", "meaning_zh": "是"},
-        {"block_id": "q1", "unit_type": "word", "label": "vocabulary", "text": "student", "meaning_zh": "学生"},
-    ],
     "uncertainty": {"requires_review": False, "confidence": 0.9, "reason": None},
 }
 
 
 def test_parse_json_payload_with_wrapped_text() -> None:
     client = LLMClient(Settings())
-    payload_text = json.dumps(V3_PAYLOAD, ensure_ascii=False)
+    payload_text = json.dumps(V4_PAYLOAD, ensure_ascii=False)
     raw = """some logs...
 ```json
 %s
 ```
 """ % payload_text
     payload = client._parse_json_payload(raw)  # noqa: SLF001
-    assert payload["question_meaning_zh"] == V3_PAYLOAD["question_meaning_zh"]
+    assert payload["question_meaning_zh"] == V4_PAYLOAD["question_meaning_zh"]
 
 
 def test_extract_payload_from_event_stream_lines() -> None:
     client = LLMClient(Settings())
-    escaped_payload = json.dumps(V3_PAYLOAD, ensure_ascii=False)
+    escaped_payload = json.dumps(V4_PAYLOAD, ensure_ascii=False)
     raw = '\n'.join(
         [
             '{"type":"step_start","timestamp":1,"part":{"type":"step-start"}}',
@@ -93,7 +91,7 @@ def test_extract_payload_from_event_stream_lines() -> None:
         ]
     )
     payload = client._parse_json_payload(raw)  # noqa: SLF001
-    assert payload["answer_lines"][0]["plain_text"] == "I am a student."
+    assert payload["answer_items"][0]["plain_text"] == "I am a student."
 
 
 def test_parse_json_payload_rejects_step_start_only() -> None:

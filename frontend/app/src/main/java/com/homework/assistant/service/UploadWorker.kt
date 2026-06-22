@@ -142,14 +142,14 @@ class UploadWorker(
                     when (status.status.lowercase()) {
                         "completed" -> {
                             val parseResult = status.result
-                            // answer_lines 是参考答案区正式契约；solution_steps 只表示过程，不能替代答案行。
+                            // answer_items 是参考答案区正式契约；solution_steps 只表示过程，不能替代答案项。
                             if (
                                 parseResult == null ||
                                 parseResult.subject.isBlank() ||
                                 parseResult.question_blocks.isEmpty() ||
-                                parseResult.answer_lines.isEmpty()
+                                parseResult.answer_items.isEmpty()
                             ) {
-                                val msg = "后端返回缺少 subject、question_blocks 或 answer_lines，请检查后端是否已部署当前 JSON v3 契约。"
+                                val msg = "后端返回缺少 subject、question_blocks 或 answer_items，请检查后端是否已部署当前 JSON v4 契约。"
                                 Log.e(TAG, "Task $localTaskId invalid result: $msg")
                                 markFailed(localTaskId, msg)
                                 return Result.failure()

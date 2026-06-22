@@ -44,45 +44,76 @@ data class TaskStatusResponse(
 )
 
 /**
- * 解析结果 JSON v3（异步接口，使用 answer_lines / learning_points / read_units）
+ * 解析结果 JSON v4（题面内容、答案项、学生答案批改分层展示）
  */
 data class ParseResult(
+    val schema_version: String = "4.0",
     val subject: String = "general",
     val question_meaning_zh: String = "",
-    val question_instruction: QuestionInstruction = QuestionInstruction(),
     val question_blocks: List<QuestionBlock> = emptyList(),
-    val answer_lines: List<AnswerLine> = emptyList(),
+    val answer_items: List<AnswerItem> = emptyList(),
+    val student_answer_reviews: List<StudentAnswerReview> = emptyList(),
     val solution_steps: List<SolutionStep> = emptyList(),
     val explanation_zh: String = "",
     val learning_points: List<LearningPoint> = emptyList(),
-    val read_units: List<ReadUnit> = emptyList(),
     val uncertainty: Uncertainty = Uncertainty()
-)
-
-data class QuestionInstruction(
-    val text: String = "",
-    val meaning_zh: String = "",
-    val confidence: Float = 0.0f
 )
 
 data class QuestionBlock(
     val block_id: String = "",
+    val order: Int = 0,
     val title: String = "",
-    val question_instruction: QuestionInstruction = QuestionInstruction(),
-    val question_meaning_zh: String = ""
+    val question_meaning_zh: String = "",
+    val content_items: List<ContentItem> = emptyList()
 )
 
-data class AnswerLine(
+data class ContentItem(
+    val item_id: String = "",
+    val order: Int = 0,
+    val group_id: String? = null,
+    val type: String = "other",
+    val text: String = "",
+    val meaning_zh: String? = null,
+    val language: String = "unknown",
+    val speak_text: String? = null,
+    val speakable: Boolean = true
+)
+
+data class AnswerItem(
+    val answer_id: String = "",
     val block_id: String = "",
+    val order: Int = 0,
     val number: String? = null,
-    val line_type: String = "other",
+    val answer_type: String = "other",
     val plain_text: String = "",
-    val segments: List<AnswerSegment> = emptyList()
+    val speak_text: String? = null,
+    val display: AnswerDisplay = AnswerDisplay()
 )
 
-data class AnswerSegment(
+data class AnswerDisplay(
+    val mode: String = "inline_segments",
+    val format: String = "plain_text",
+    val latex: String? = null,
+    val preserve_newlines: Boolean = false,
+    val runs: List<DisplayRun> = emptyList()
+)
+
+data class DisplayRun(
     val text: String = "",
     val role: String = "answer"
+)
+
+data class StudentAnswerReview(
+    val review_id: String = "",
+    val block_id: String = "",
+    val answer_id: String? = null,
+    val order: Int = 0,
+    val number: String? = null,
+    val student_answer: String? = null,
+    val correct_answer: String? = null,
+    val status: String = "unclear",
+    val feedback_zh: String = "",
+    val confidence: Float = 0.0f
 )
 
 data class SolutionStep(
@@ -101,15 +132,6 @@ data class LearningPoint(
     val pronunciation: String? = null,
     val category: String = "other",
     val label: String? = null
-)
-
-data class ReadUnit(
-    val block_id: String? = null,
-    @SerializedName("unit_type")
-    val unit_type: String = "text",
-    val label: String? = null,
-    val text: String = "",
-    val meaning_zh: String? = null
 )
 
 data class Uncertainty(

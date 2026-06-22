@@ -18,26 +18,61 @@ class LearningPoint(BaseModel):
     label: str | None = None
 
 
-class ReadUnit(BaseModel):
+class ContentItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    block_id: str | None = None
-    unit_type: Literal["word", "text"]
-    label: str | None = None
+    item_id: str = Field(min_length=1)
+    order: int = Field(ge=1)
+    group_id: str | None = None
+    type: Literal[
+        "instruction",
+        "example",
+        "context",
+        "material",
+        "dialogue",
+        "word_bank",
+        "option",
+        "image_text",
+        "other",
+    ] = "other"
     text: str = Field(min_length=1)
     meaning_zh: str | None = None
+    language: Literal["zh", "en", "mixed", "unknown"] = "unknown"
+    speak_text: str | None = None
+    speakable: bool = True
 
 
-class AnswerSegment(BaseModel):
+class DisplayRun(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text: str = Field(min_length=1)
-    role: Literal["given", "answer", "connector", "correction"]
+    role: Literal["given", "answer", "connector", "correction", "student_answer"]
 
 
-class AnswerLine(BaseModel):
+class AnswerDisplay(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    mode: Literal[
+        "inline_segments",
+        "math_block",
+        "paragraph",
+        "choice",
+        "matching",
+        "table",
+        "pinyin",
+        "copying",
+        "plain",
+    ] = "inline_segments"
+    format: Literal["plain_text", "plain_math", "latex", "vertical_calculation", "table"] = "plain_text"
+    latex: str | None = None
+    preserve_newlines: bool = False
+    runs: list[DisplayRun] = Field(min_length=1)
+
+
+class AnswerItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    answer_id: str = Field(min_length=1)
     block_id: str = Field(min_length=1)
+    order: int = Field(ge=1)
     number: str | None = None
-    line_type: Literal[
+    answer_type: Literal[
         "fill_blank",
         "choice",
         "picture_word",
@@ -55,24 +90,38 @@ class AnswerLine(BaseModel):
         "other",
     ] = "other"
     plain_text: str = Field(min_length=1)
-    segments: list[AnswerSegment] = Field(min_length=1)
-
-
-class QuestionInstruction(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    text: str = ""
-    meaning_zh: str = ""
-    confidence: float = Field(ge=0.0, le=1.0, default=0.0)
+    speak_text: str | None = None
+    display: AnswerDisplay
 
 
 class QuestionBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
     block_id: str = Field(min_length=1)
+    order: int = Field(ge=1)
     title: str = Field(min_length=1)
-    question_instruction: QuestionInstruction = Field(
-        default_factory=QuestionInstruction
-    )
     question_meaning_zh: str = Field(min_length=1)
+    content_items: list[ContentItem] = Field(default_factory=list)
+
+
+class StudentAnswerReview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    review_id: str = Field(min_length=1)
+    block_id: str = Field(min_length=1)
+    answer_id: str | None = None
+    order: int = Field(ge=1)
+    number: str | None = None
+    student_answer: str | None = None
+    correct_answer: str | None = None
+    status: Literal[
+        "correct",
+        "incorrect",
+        "partially_correct",
+        "unanswered",
+        "unclear",
+        "not_applicable",
+    ]
+    feedback_zh: str = Field(min_length=1)
+    confidence: float = Field(ge=0.0, le=1.0, default=0.8)
 
 
 class SolutionStep(BaseModel):
@@ -100,20 +149,18 @@ class ErrorResponse(BaseModel):
 
 
 class HomeworkParseResult(BaseModel):
-    """Fixed parse output schema v3."""
+    """Fixed parse output schema v4."""
 
     model_config = ConfigDict(extra="forbid")
+    schema_version: Literal["4.0"] = "4.0"
     subject: Literal["general", "english", "liberal_arts", "science"] = "general"
     question_meaning_zh: str = Field(min_length=1)
-    question_instruction: QuestionInstruction = Field(
-        default_factory=QuestionInstruction
-    )
     question_blocks: list[QuestionBlock] = Field(min_length=1)
-    answer_lines: list[AnswerLine] = Field(min_length=1)
+    answer_items: list[AnswerItem] = Field(min_length=1)
+    student_answer_reviews: list[StudentAnswerReview] = Field(default_factory=list)
     solution_steps: list[SolutionStep] = Field(default_factory=list)
     explanation_zh: str = Field(min_length=1)
     learning_points: list[LearningPoint] = Field(default_factory=list)
-    read_units: list[ReadUnit] = Field(default_factory=list)
     uncertainty: Uncertainty = Field(default_factory=Uncertainty)
 
 

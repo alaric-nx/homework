@@ -1,21 +1,25 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "HomeworkParseResponseV3",
+  "title": "HomeworkParseResponseV4",
   "type": "object",
   "additionalProperties": false,
   "required": [
+    "schema_version",
     "subject",
     "question_meaning_zh",
-    "question_instruction",
     "question_blocks",
-    "answer_lines",
+    "answer_items",
+    "student_answer_reviews",
     "solution_steps",
     "explanation_zh",
     "learning_points",
-    "read_units",
     "uncertainty"
   ],
   "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "4.0"
+    },
     "subject": {
       "type": "string",
       "enum": ["general", "english", "liberal_arts", "science"]
@@ -24,97 +28,148 @@
       "type": "string",
       "minLength": 1
     },
-    "question_instruction": {
-      "$ref": "#/$defs/question_instruction"
-    },
     "question_blocks": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "block_id",
-          "title",
-          "question_instruction",
-          "question_meaning_zh"
-        ],
+        "required": ["block_id", "order", "title", "question_meaning_zh", "content_items"],
         "properties": {
           "block_id": {
             "type": "string",
             "minLength": 1
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 1
           },
           "title": {
             "type": "string",
             "minLength": 1
           },
-          "question_instruction": {
-            "$ref": "#/$defs/question_instruction"
-          },
           "question_meaning_zh": {
             "type": "string",
             "minLength": 1
+          },
+          "content_items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/content_item"
+            }
           }
         }
       }
     },
-    "answer_lines": {
+    "answer_items": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["block_id", "number", "line_type", "plain_text", "segments"],
+        "required": [
+          "answer_id",
+          "block_id",
+          "order",
+          "number",
+          "answer_type",
+          "plain_text",
+          "speak_text",
+          "display"
+        ],
         "properties": {
+          "answer_id": {
+            "type": "string",
+            "minLength": 1
+          },
           "block_id": {
             "type": "string",
             "minLength": 1
           },
+          "order": {
+            "type": "integer",
+            "minimum": 1
+          },
           "number": {
             "type": ["string", "null"]
           },
-          "line_type": {
-            "type": "string",
-            "enum": [
-              "fill_blank",
-              "choice",
-              "picture_word",
-              "matching",
-              "sentence_ordering",
-              "reading_qa",
-              "translation",
-              "correction",
-              "copying",
-              "calculation",
-              "proof",
-              "short_answer",
-              "composition",
-              "pinyin",
-              "other"
-            ]
+          "answer_type": {
+            "$ref": "#/$defs/answer_type"
           },
           "plain_text": {
             "type": "string",
             "minLength": 1
           },
-          "segments": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["text", "role"],
-              "properties": {
-                "text": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "role": {
-                  "type": "string",
-                  "enum": ["given", "answer", "connector", "correction"]
-                }
-              }
-            }
+          "speak_text": {
+            "type": ["string", "null"]
+          },
+          "display": {
+            "$ref": "#/$defs/answer_display"
+          }
+        }
+      }
+    },
+    "student_answer_reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "review_id",
+          "block_id",
+          "answer_id",
+          "order",
+          "number",
+          "student_answer",
+          "correct_answer",
+          "status",
+          "feedback_zh",
+          "confidence"
+        ],
+        "properties": {
+          "review_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "block_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "answer_id": {
+            "type": ["string", "null"]
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "number": {
+            "type": ["string", "null"]
+          },
+          "student_answer": {
+            "type": ["string", "null"]
+          },
+          "correct_answer": {
+            "type": ["string", "null"]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "correct",
+              "incorrect",
+              "partially_correct",
+              "unanswered",
+              "unclear",
+              "not_applicable"
+            ]
+          },
+          "feedback_zh": {
+            "type": "string",
+            "minLength": 1
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
           }
         }
       }
@@ -186,33 +241,6 @@
         }
       }
     },
-    "read_units": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["block_id", "unit_type", "text", "meaning_zh"],
-        "properties": {
-          "block_id": {
-            "type": ["string", "null"]
-          },
-          "unit_type": {
-            "type": "string",
-            "enum": ["word", "text"]
-          },
-          "label": {
-            "type": ["string", "null"]
-          },
-          "text": {
-            "type": "string",
-            "minLength": 1
-          },
-          "meaning_zh": {
-            "type": ["string", "null"]
-          }
-        }
-      }
-    },
     "uncertainty": {
       "type": "object",
       "additionalProperties": false,
@@ -233,21 +261,132 @@
     }
   },
   "$defs": {
-    "question_instruction": {
+    "content_item": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["text", "meaning_zh", "confidence"],
+      "required": [
+        "item_id",
+        "order",
+        "group_id",
+        "type",
+        "text",
+        "meaning_zh",
+        "language",
+        "speak_text",
+        "speakable"
+      ],
       "properties": {
+        "item_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "group_id": {
+          "type": ["string", "null"]
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "instruction",
+            "example",
+            "context",
+            "material",
+            "dialogue",
+            "word_bank",
+            "option",
+            "image_text",
+            "other"
+          ]
+        },
         "text": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "meaning_zh": {
-          "type": "string"
+          "type": ["string", "null"]
         },
-        "confidence": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1
+        "language": {
+          "type": "string",
+          "enum": ["zh", "en", "mixed", "unknown"]
+        },
+        "speak_text": {
+          "type": ["string", "null"]
+        },
+        "speakable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "answer_type": {
+      "type": "string",
+      "enum": [
+        "fill_blank",
+        "choice",
+        "picture_word",
+        "matching",
+        "sentence_ordering",
+        "reading_qa",
+        "translation",
+        "correction",
+        "copying",
+        "calculation",
+        "proof",
+        "short_answer",
+        "composition",
+        "pinyin",
+        "other"
+      ]
+    },
+    "answer_display": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "format", "latex", "preserve_newlines", "runs"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "inline_segments",
+            "math_block",
+            "paragraph",
+            "choice",
+            "matching",
+            "table",
+            "pinyin",
+            "copying",
+            "plain"
+          ]
+        },
+        "format": {
+          "type": "string",
+          "enum": ["plain_text", "plain_math", "latex", "vertical_calculation", "table"]
+        },
+        "latex": {
+          "type": ["string", "null"]
+        },
+        "preserve_newlines": {
+          "type": "boolean"
+        },
+        "runs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["text", "role"],
+            "properties": {
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "role": {
+                "type": "string",
+                "enum": ["given", "answer", "connector", "correction", "student_answer"]
+              }
+            }
+          }
         }
       }
     }

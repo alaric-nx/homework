@@ -2,9 +2,9 @@
 
 ## 当前阶段
 
-阶段目标：完成 JSON v3 多学科解析基础能力（通用 / 英语 / 文科 / 理科），并保持英语链路现有能力。
+阶段目标：完成 JSON v4 多学科解析与逐题报告契约（题面内容、答案项、学生答案批改、逐题题解），并保持英语链路现有能力。
 
-最后更新时间：2026-06-16
+最后更新时间：2026-06-22
 
 ## 任务列表
 
@@ -145,3 +145,27 @@
 - [x] 多题块未知 `block_id` 不再静默归并到第一个题目块
 - [x] `plain_text` 与 `segments` 不一致时保留完整答案
 - [x] LLM 配置优先读取仓库内 `backend/.config/llm.json`
+
+### B-007 JSON v4 后端契约与逐题题解
+
+- 状态：已完成
+- 优先级：高
+- 完成比例：100%
+- 已完成子项 / 总子项：8 / 8
+- 负责人：Codex
+- 计划开始：2026-06-22
+- 计划完成：2026-06-22
+- 实际完成：2026-06-22
+- 最后更新时间：2026-06-22
+- 备注：正式契约升级为 JSON v4；`answer_items` 只承载答案，逐题题解归入 `solution_steps`，顶部批改总览由前端展示。
+
+子项：
+
+- [x] Pydantic 模型升级到 `schema_version=4.0`
+- [x] JSON schema 升级为 `answer_items`、`student_answer_reviews`、`question_blocks[].content_items`
+- [x] 移除正式接口中的 `question_instruction`、`answer_lines`、`read_units`
+- [x] 提示词要求 `content_items` 按实际可见行拆分，不固化个例行数
+- [x] 提示词要求 `answer_items.plain_text` 只放最终答案或关键结果
+- [x] 提示词要求逐题推理、计算、选项排除和错因进入对应 `solution_steps`
+- [x] `explanation_zh` 降级为全局总结和共性提醒
+- [x] 后端回归测试通过：`pytest` 共 22 个测试

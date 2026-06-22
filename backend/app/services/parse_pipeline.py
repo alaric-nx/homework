@@ -11,7 +11,7 @@ from typing import Any
 
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.core.models import HomeworkParseResult, LearningPoint, ReadUnit
+from app.core.models import HomeworkParseResult, LearningPoint
 from app.services.llm_client import LLMClient
 from app.skills.common.response_schema_guard import ResponseSchemaGuard
 
@@ -27,15 +27,55 @@ LEARNING_POINT_CATEGORY_ALIASES = {
     "pinyin": "word",
 }
 LEARNING_POINT_CATEGORIES = {"word", "concept", "formula", "unit", "method", "other"}
-READ_UNIT_TYPE_ALIASES = {
-    "sentence": "text",
-    "paragraph": "text",
-    "answer": "text",
-    "explanation": "text",
-    "instruction": "text",
-    "question_instruction": "text",
+CONTENT_ITEM_TYPE_ALIASES = {
+    "question_instruction": "instruction",
+    "sentence": "context",
+    "paragraph": "material",
+    "text": "context",
+    "scene": "context",
+    "passage": "material",
+    "wordbank": "word_bank",
+    "word_bank": "word_bank",
 }
-READ_UNIT_TYPES = {"word", "text"}
+CONTENT_ITEM_TYPES = {
+    "instruction",
+    "example",
+    "context",
+    "material",
+    "dialogue",
+    "word_bank",
+    "option",
+    "image_text",
+    "other",
+}
+DISPLAY_MODES_BY_ANSWER_TYPE = {
+    "calculation": "math_block",
+    "proof": "math_block",
+    "composition": "paragraph",
+    "reading_qa": "paragraph",
+    "choice": "choice",
+    "matching": "matching",
+    "pinyin": "pinyin",
+    "copying": "copying",
+}
+DISPLAY_FORMATS = {"plain_text", "plain_math", "latex", "vertical_calculation", "table"}
+ANSWER_TYPES = {
+    "fill_blank",
+    "choice",
+    "picture_word",
+    "matching",
+    "sentence_ordering",
+    "reading_qa",
+    "translation",
+    "correction",
+    "copying",
+    "calculation",
+    "proof",
+    "short_answer",
+    "composition",
+    "pinyin",
+    "other",
+}
 
 
 _SUBJECT_NOTES: dict[str, str] = {
@@ -46,9 +86,9 @@ _SUBJECT_NOTES: dict[str, str] = {
     ),
     "english": (
         "你是英语练习题解析助手，适用于英语作业、练习册、考试题和基础学习题。"
-        "保持英语解析能力：完整答案行、题目要求原文、词义、发音(IPA)、句义和答案词义覆盖。"
+        "保持英语解析能力：完整答案项、题目要求原文、例句/场景/短文材料、词义、发音(IPA)、句义和答案词义覆盖。"
         "learning_points 重点放英文单词、短语、语法点，pronunciation 放 IPA。"
-        "read_units 放题目要求、答案句、需要点读的单词或短句。"
+        "question_blocks[].content_items 必须放题目要求、例句、场景、短文、词库、选项等题面内容，并为可朗读内容提供 speak_text。"
         "推导答案后，必须再检查语法、拼写、时态、单复数和常见英语表达是否地道。"
     ),
     "liberal_arts": (
@@ -56,38 +96,39 @@ _SUBJECT_NOTES: dict[str, str] = {
         "重点识别题目要求、材料、问题、选项和答题依据。"
         "阅读理解和材料题必须说明答案依据。"
         "拼音题把拼音放入 learning_points.pronunciation。"
-        "古诗文、文言文要在 read_units 同时给出原文和现代汉语翻译(meaning_zh)。"
+        "古诗文、文言文要在 content_items 中放原文和现代汉语翻译(meaning_zh)。"
         "作文或开放题给出可参考答案和审题提示，不编造唯一标准答案。"
     ),
     "science": (
         "你是理科作业解析助手，覆盖数学、科学、物理、化学等。"
         "必须提取已知条件、要求的问题、关键公式或方法。"
         "solution_steps 必须清楚展示列式、推理或计算过程。"
-        "answer_lines 放最终答案或需要填写的关键内容，答案要带单位。"
-        "单位、公式、易错概念进入 learning_points，不要给发音。复杂公式不要放入 read_units。"
+        "answer_items 放最终答案或需要填写的关键内容，答案要带单位。"
+        "单位、公式、易错概念进入 learning_points，不要给发音。复杂公式的 speak_text 要用适合朗读的自然语言。"
     ),
 }
 
 # 各学科的内部推理步骤（不展示给用户），按学科定制思路。
 _REASONING_STEPS: dict[str, str] = {
     "general": (
-        "A. 判断图片里有几个独立题目块：看编号、标题、题目要求行、分隔线、版面分区。\n"
-        "B. 作答要求/编号体系/版面分区不同的，必须拆成不同 question_blocks。\n"
+        "A. 判断图片里有几个独立可批改小题：优先看每个小题编号、答案空格、选项组、作答位置和学生作答痕迹。\n"
+        "B. 独立可批改小题必须拆成不同 question_blocks；大题标题、题型说明、共同材料只放入 content_items，不单独决定题卡粒度。\n"
         "C. 为每个题目块判断题型：填空、选择、判断、连线、排序、阅读、计算、作文等。\n"
         "D. 找出每个题目块的作答要求。\n"
         "E. 用最稳妥的方式推导答案，必要时补充步骤或依据，不强行套某一学科套路。\n"
         "F. 检查答案是否符合图片、题干与学科常识。\n"
     ),
     "english": (
-        "A. 判断题目块数量与边界：看编号、标题、分隔线、版面分区。\n"
-        "B. 作答要求/编号/版面不同的，拆成不同 question_blocks。\n"
+        "A. 判断独立可批改小题数量与边界：看小题编号、空格、选项组、作答位置和版面分隔。\n"
+        "B. 独立可批改小题必须拆成不同 question_blocks；共同例句、词库、题目要求只放入 content_items。\n"
         "C. 判断每个题目块题型：填空、选择、连词成句、阅读、翻译、改错等。\n"
         "D. 推导答案；填空/补全必须给出补全后的完整句子。\n"
         "E. 检查语法、拼写、时态、单复数与地道表达。\n"
-        "F. 为答案中的关键英文词补充词义和 IPA，确保答案词义覆盖。\n"
+        "F. 识别学生手写答案；如存在，逐题判断正确、错误、部分正确、未答或看不清。\n"
+        "G. 为答案中的关键英文词补充词义和 IPA，确保答案词义覆盖。\n"
     ),
     "liberal_arts": (
-        "A. 判断题目块数量与边界：看编号、标题、分隔线、版面分区。\n"
+        "A. 判断独立可批改小题数量与边界：看小题编号、问题、作答位置、材料引用和版面分隔。\n"
         "B. 读懂材料/题干/选项，明确每个题目块的作答要求。\n"
         "C. 判断题型：阅读理解、拼音、字词、古诗文、选择、填空、作文等。\n"
         "D. 推导答案；阅读理解和材料题必须给出答题依据。\n"
@@ -95,11 +136,11 @@ _REASONING_STEPS: dict[str, str] = {
         "F. 检查答案是否扣题、是否有据、是否符合常识。\n"
     ),
     "science": (
-        "A. 判断题目块数量与边界：看编号、标题、分隔线、版面分区。\n"
+        "A. 判断独立可批改小题数量与边界：看小题编号、选项组、计算题空、作答位置和学生作答痕迹。\n"
         "B. 提取每个题目块的已知条件、所求问题与单位。\n"
         "C. 判断题型（计算、应用、证明、选择、填空等），选择合适的公式或方法。\n"
         "D. 在 solution_steps 中分步列式、推理、计算。\n"
-        "E. 得出最终答案并标注单位，answer_lines 放最终答案或关键列式。\n"
+        "E. 得出最终答案并标注单位，answer_items 放最终答案或关键列式。\n"
         "F. 验算并检查单位、量纲与合理性。\n"
     ),
 }
@@ -111,87 +152,61 @@ _SUBJECT_TYPE_NOTES: dict[str, str] = {
         "英语补充规则：\n"
         "- 填空/补全/连词成句：plain_text 必须是补全后的完整句子或短语。\n"
         "- 答案中的关键英文词放入 learning_points(category=word)，尽量给 IPA。\n"
-        "- read_units 放题目要求、答案句、需要点读的单词或短句。\n"
+        "- content_items 放题目要求、例句、场景、短文、词库、选项等题面内容，并为可朗读内容提供 speak_text。\n"
     ),
     "liberal_arts": (
         "文科补充规则：\n"
         "- 阅读理解/材料题：答案必须说明依据。\n"
         "- 拼音题：把拼音放入 learning_points.pronunciation。\n"
-        "- 古诗文/文言文：read_units 的 text 放原文，meaning_zh 放现代汉语翻译，便于点读和对照。\n"
+        "- 古诗文/文言文：content_items 的 text 放原文，meaning_zh 放现代汉语翻译，便于点读和对照。\n"
         "- 作文/开放题：给参考提纲或参考答案，不编造唯一标准答案。\n"
     ),
     "science": (
         "理科补充规则：\n"
         "- 计算/应用/证明题：solution_steps 至少 1 项，清楚展示列式、推理或计算过程；"
-        "answer_lines 放最终答案或关键列式，答案要带单位。\n"
+        "answer_items 只放最终答案或必须填写的关键结果，答案要带单位；逐题推理和解释放入同 block_id 的 solution_steps。\n"
         "- 公式、单位、易错概念放入 learning_points(category=formula/unit/method/concept)，不要给发音。\n"
-        "- 复杂数学公式不要放入 read_units；read_units 只放自然语言（如题意、讲解）。\n"
+        "- 复杂数学公式的 speak_text 使用自然语言读法；display.mode 使用 math_block。\n"
     ),
 }
 
-# 每个学科一个精简示例：只示意结构与字段关系，帮助模型稳定产出 v3 JSON（请勿照抄内容）。
+# 每个学科一个精简示例：只示意结构与字段关系，帮助模型稳定产出 v4 JSON（请勿照抄内容）。
 _SUBJECT_EXAMPLES: dict[str, str] = {
     "general": (
         "结构示例（仅示意，请勿照抄）：\n"
         "{\n"
+        '  "schema_version": "4.0",\n'
         '  "subject": "general",\n'
-        '  "question_meaning_zh": "本图包含1个题目块，单项选择。",\n'
-        '  "question_instruction": {"text": "选择正确答案。", "meaning_zh": "选出正确选项。", "confidence": 0.93},\n'
-        '  "question_blocks": [{"block_id": "q1", "title": "第1题", "question_instruction": {"text": "选择正确答案。", "meaning_zh": "选出正确选项。", "confidence": 0.93}, "question_meaning_zh": "从选项中选出正确答案。"}],\n'
-        '  "answer_lines": [{"block_id": "q1", "number": "1", "line_type": "choice", "plain_text": "B", "segments": [{"text": "B", "role": "answer"}]}],\n'
+        '  "question_meaning_zh": "题目要求从选项中选择正确答案。",\n'
+        '  "question_blocks": [{"block_id": "q1", "order": 1, "title": "第1题", "question_meaning_zh": "从选项中选出正确答案。", "content_items": [{"item_id": "q1-c1", "order": 1, "group_id": null, "type": "instruction", "text": "选择正确答案。", "meaning_zh": "选出正确选项。", "language": "zh", "speak_text": "选择正确答案。", "speakable": true}]}],\n'
+        '  "answer_items": [{"answer_id": "q1-a1", "block_id": "q1", "order": 1, "number": "1", "answer_type": "choice", "plain_text": "B", "speak_text": "B", "display": {"mode": "choice", "format": "plain_text", "latex": null, "preserve_newlines": false, "runs": [{"text": "B", "role": "answer"}]}}],\n'
+        '  "student_answer_reviews": [],\n'
         '  "solution_steps": [],\n'
         '  "explanation_zh": "根据题意，B 项符合。",\n'
         '  "learning_points": [],\n'
-        '  "read_units": [],\n'
         '  "uncertainty": {"requires_review": false, "confidence": 0.9, "reason": null}\n'
         "}\n"
     ),
     "english": (
         "结构示例（仅示意，请勿照抄）：\n"
         "{\n"
+        '  "schema_version": "4.0",\n'
         '  "subject": "english",\n'
-        '  "question_meaning_zh": "本图包含1个题目块，要求补全句子。",\n'
-        '  "question_instruction": {"text": "Complete the sentence.", "meaning_zh": "补全句子。", "confidence": 0.95},\n'
-        '  "question_blocks": [{"block_id": "q1", "title": "第1题", "question_instruction": {"text": "Complete the sentence.", "meaning_zh": "补全句子。", "confidence": 0.95}, "question_meaning_zh": "把空格补成完整句子。"}],\n'
-        '  "answer_lines": [{"block_id": "q1", "number": "1", "line_type": "fill_blank", "plain_text": "I am a student.", "segments": [{"text": "I ", "role": "given"}, {"text": "am", "role": "answer"}, {"text": " a student.", "role": "given"}]}],\n'
+        '  "question_meaning_zh": "题目要求根据例句补全句子。",\n'
+        '  "question_blocks": [{"block_id": "q1", "order": 1, "title": "第1题", "question_meaning_zh": "读例句后把空格补成完整句子。", "content_items": [{"item_id": "q1-c1", "order": 1, "group_id": null, "type": "instruction", "text": "Complete the sentence.", "meaning_zh": "补全句子。", "language": "en", "speak_text": "Complete the sentence.", "speakable": true}, {"item_id": "q1-c2", "order": 2, "group_id": "example-1", "type": "example", "text": "Example: I am happy.", "meaning_zh": "例句：我很开心。", "language": "en", "speak_text": "I am happy.", "speakable": true}]}],\n'
+        '  "answer_items": [{"answer_id": "q1-a1", "block_id": "q1", "order": 1, "number": "1", "answer_type": "fill_blank", "plain_text": "I am a student.", "speak_text": "I am a student.", "display": {"mode": "inline_segments", "format": "plain_text", "latex": null, "preserve_newlines": false, "runs": [{"text": "I ", "role": "given"}, {"text": "am", "role": "answer"}, {"text": " a student.", "role": "given"}]}}],\n'
+        '  "student_answer_reviews": [{"review_id": "q1-r1", "block_id": "q1", "answer_id": "q1-a1", "order": 1, "number": "1", "student_answer": "am", "correct_answer": "am", "status": "correct", "feedback_zh": "填写正确。", "confidence": 0.95}],\n'
         '  "solution_steps": [],\n'
         '  "explanation_zh": "be 动词与 I 搭配用 am。",\n'
         '  "learning_points": [{"block_id": "q1", "term": "am", "explanation_zh": "是", "pronunciation": "/æm/", "category": "word", "label": "vocabulary"}],\n'
-        '  "read_units": [{"block_id": "q1", "unit_type": "text", "label": "answer", "text": "I am a student.", "meaning_zh": "我是一名学生。"}],\n'
         '  "uncertainty": {"requires_review": false, "confidence": 0.95, "reason": null}\n'
         "}\n"
-        "注意：plain_text 必须等于 segments 各 text 顺序拼接。上例 \"I \"+\"am\"+\" a student.\" = \"I am a student.\"。\n"
     ),
     "liberal_arts": (
-        "结构示例（仅示意，请勿照抄）：\n"
-        "{\n"
-        '  "subject": "liberal_arts",\n'
-        '  "question_meaning_zh": "本图包含1个题目块，古文填空。",\n'
-        '  "question_instruction": {"text": "在横线上填写原句。", "meaning_zh": "默写古文原句。", "confidence": 0.94},\n'
-        '  "question_blocks": [{"block_id": "q1", "title": "第1题", "question_instruction": {"text": "在横线上填写原句。", "meaning_zh": "默写古文原句。", "confidence": 0.94}, "question_meaning_zh": "补全《论语》名句。"}],\n'
-        '  "answer_lines": [{"block_id": "q1", "number": "1", "line_type": "fill_blank", "plain_text": "学而时习之，不亦说乎", "segments": [{"text": "学而时习之，", "role": "given"}, {"text": "不亦说乎", "role": "answer"}]}],\n'
-        '  "solution_steps": [],\n'
-        '  "explanation_zh": "出自《论语》，“说”通“悦”，意为愉快。",\n'
-        '  "learning_points": [{"block_id": "q1", "term": "说", "explanation_zh": "通“悦”，愉快。", "pronunciation": "yuè", "category": "word", "label": "字词"}],\n'
-        '  "read_units": [{"block_id": "q1", "unit_type": "text", "label": "answer", "text": "学而时习之，不亦说乎", "meaning_zh": "学习并经常温习，不也很愉快吗？"}],\n'
-        '  "uncertainty": {"requires_review": false, "confidence": 0.94, "reason": null}\n'
-        "}\n"
-        "注意：古诗文/文言句子在 read_units 用 text 放原文、meaning_zh 放现代汉语翻译。\n"
+        "结构示例同 general，但古诗文/阅读材料必须放入 content_items；student_answer_reviews 用于批改手写答案。\n"
     ),
     "science": (
-        "结构示例（仅示意，请勿照抄）：\n"
-        "{\n"
-        '  "subject": "science",\n'
-        '  "question_meaning_zh": "本图包含1个题目块，求长方形面积。",\n'
-        '  "question_instruction": {"text": "求下面长方形的面积。", "meaning_zh": "计算长方形面积。", "confidence": 0.96},\n'
-        '  "question_blocks": [{"block_id": "q1", "title": "第1题", "question_instruction": {"text": "求下面长方形的面积。", "meaning_zh": "计算面积。", "confidence": 0.96}, "question_meaning_zh": "已知长8cm、宽5cm，求面积。"}],\n'
-        '  "answer_lines": [{"block_id": "q1", "number": "1", "line_type": "calculation", "plain_text": "8 × 5 = 40（平方厘米）", "segments": [{"text": "8 × 5 = ", "role": "given"}, {"text": "40（平方厘米）", "role": "answer"}]}],\n'
-        '  "solution_steps": [{"block_id": "q1", "number": "1", "title": "面积公式", "content_zh": "长方形面积等于长乘宽。", "formula": "S = 长 × 宽", "result": null}, {"block_id": "q1", "number": "2", "title": "代入计算", "content_zh": "把长8、宽5代入公式。", "formula": "8 × 5 = 40", "result": "40 平方厘米"}],\n'
-        '  "explanation_zh": "考查长方形面积公式，注意单位是平方厘米。",\n'
-        '  "learning_points": [{"block_id": "q1", "term": "长方形面积公式", "explanation_zh": "面积 = 长 × 宽。", "pronunciation": null, "category": "formula", "label": "formula"}],\n'
-        '  "read_units": [{"block_id": "q1", "unit_type": "text", "label": "explanation", "text": "长方形面积等于长乘宽。", "meaning_zh": null}],\n'
-        '  "uncertainty": {"requires_review": false, "confidence": 0.96, "reason": null}\n'
-        "}\n"
+        "结构示例同 general，但计算题 answer_items[].display.mode 使用 math_block，speak_text 用自然语言读法，solution_steps 给出列式和推理。\n"
     ),
 }
 
@@ -215,21 +230,21 @@ def _compose_subject_prompt(subject: str) -> str:
         "\n"
         "必须严格遵守：\n"
         "1) 只输出一个 JSON 对象，不要 markdown，不要代码块，不要任何额外文字。\n"
-        "2) 只允许以下字段：subject, question_meaning_zh, question_instruction, question_blocks, "
-        "answer_lines, solution_steps, explanation_zh, learning_points, read_units, uncertainty。\n"
-        "3) 字段必须齐全，不能缺失，不能新增字段；不要输出 reference_answer。\n"
-        f"4) subject 必须固定输出为 \"{subject}\"。\n"
-        "5) solution_steps 是数组，元素字段：block_id, number, title, content_zh, formula, result。\n"
-        "6) learning_points 是数组，元素字段：block_id, term, explanation_zh, pronunciation, category, label。\n"
+        "2) 只允许以下顶层字段：schema_version, subject, question_meaning_zh, question_blocks, "
+        "answer_items, student_answer_reviews, solution_steps, explanation_zh, learning_points, uncertainty。\n"
+        "3) 字段必须齐全，不能缺失，不能新增字段；不要输出 question_instruction, answer_lines, read_units, reference_answer。\n"
+        '4) schema_version 必须固定输出为 "4.0"。\n'
+        f"5) subject 必须固定输出为 \"{subject}\"。\n"
+        "6) question_blocks 是数组，元素字段：block_id, order, title, question_meaning_zh, content_items。\n"
+        "7) content_items 是题面可见内容数组，元素字段：item_id, order, group_id, type, text, meaning_zh, language, speak_text, speakable。\n"
+        "8) answer_items 是参考答案数组，元素字段：answer_id, block_id, order, number, answer_type, plain_text, speak_text, display。\n"
+        "9) display 字段：mode, format, latex, preserve_newlines, runs；runs 元素字段 text, role。\n"
+        "10) student_answer_reviews 是学生手写答案批改数组，元素字段：review_id, block_id, answer_id, order, number, student_answer, correct_answer, status, feedback_zh, confidence。无手写答案时输出空数组。\n"
+        "11) solution_steps 是数组，元素字段：block_id, number, title, content_zh, formula, result。\n"
+        "12) learning_points 是数组，元素字段：block_id, term, explanation_zh, pronunciation, category, label。\n"
         "category 只能是 word, concept, formula, unit, method, other；语法点用 concept，短语/拼音/自然拼读用 word，细分类写入 label。\n"
-        "7) read_units 是数组，元素字段：block_id, unit_type, label, text, meaning_zh。unit_type 只能是 word 或 text；"
-        "题目要求、句子、段落、答案、讲解都用 text，细分类写入 label。\n"
-        "8) uncertainty 字段：requires_review(boolean), confidence(0到1), reason(可空字符串)。\n"
-        "9) question_meaning_zh 用中文概括整张图里的练习内容。如果有多个题目块，要说明包含几个题目块。\n"
-        "10) question_instruction 字段用于提取整张图最上层或共同的题目要求原文，字段为："
-        "text, meaning_zh, confidence。\n"
-        "11) question_blocks 字段用于区分同一张图片里的多个独立题目块，字段为："
-        "block_id, title, question_instruction, question_meaning_zh。\n"
+        "13) uncertainty 字段：requires_review(boolean), confidence(0到1), reason(可空字符串)。\n"
+        "14) question_meaning_zh 用中文概括整张图里的练习内容。如果有多个题目块，要说明包含几个题目块。\n"
         "\n"
         "证据原则：\n"
         "- 你会收到题目图片附件，必须以图片中的题干、图片、编号、空格、选项、例句为主要依据。\n"
@@ -240,39 +255,66 @@ def _compose_subject_prompt(subject: str) -> str:
         "在输出 JSON 前，请在内部完成这些步骤，但不要展示过程：\n"
         + reasoning
         + "\n"
-        "question_blocks 是题目块列表。每个元素代表图片中的一个独立题目块，字段为：\n"
+        "question_blocks 是题目块列表。每个元素代表图片中的一个独立可批改小题，字段为：\n"
         "- block_id: 稳定 ID，只能用 q1, q2, q3...，按图片阅读顺序编号。\n"
-        "- title: 题目块标题，可用图片中的大题编号/标题；没有标题时用 第1题、第2题。\n"
-        "- question_instruction: 该题目块的题目要求原句和中文解释。\n"
+        "- order: 从 1 开始的题块阅读顺序，同一图片内不能重复。\n"
+        "- title: 题目块标题，优先用小题编号，如 第1题、第2题；不要只用“选择题”“填空题”这类大题类型标题。\n"
         "- question_meaning_zh: 该题目块要孩子或学习者做什么。\n"
+        "- content_items: 该题块内所有需要展示或朗读的题面内容，包括题目要求、例句、场景、短文、对话、词库、选项和图片旁文字。\n"
+        "- 独立可批改小题 = 一个 question_block = 前端一张题卡；共同材料、例句、题型说明不是题卡，只放入相关题块的 content_items。\n"
+        "- 同一大题下面有多个独立小题时，必须按小题拆分 question_blocks；多个选择小题要按实际小题数量输出多个 question_blocks，而不是 1 个“选择题”题块。\n"
+        "- 每个小题的 answer_items、student_answer_reviews、solution_steps 必须使用同一个 block_id，这样前端才能把答案、批改和题解放在同一张题卡。\n"
         "\n"
-        "answer_lines 是参考答案区的唯一数据源。每个元素代表一行答案，字段为：\n"
+        "content_items 规则：\n"
+        "- type 只能是 instruction, example, context, material, dialogue, word_bank, option, image_text, other。\n"
+        "- text 必须来自图片可见题面，不要编造图片中没有的题面内容。\n"
+        "- 必须按最小可展示/可朗读单元拆分：可见行、例句行、对话轮次、词库单词/短语、选项都分别成为独立 content_item；不要把多行例句或短文合并成一个 text。\n"
+        "- 例句、场景、短文或材料有多少个独立可见行，就输出多少个独立 content_item；不能把多行塞进同一个 text，也不能只用空格连接成一段。\n"
+        "- 同一组例句或同一段材料的多行内容，用相同 group_id 归组；无归组需求时 group_id 为 null。\n"
+        "- speak_text 是适合 Android TTS 直接朗读的文本；不适合朗读时可为 null 且 speakable=false。\n"
+        "- 英语题中，题目要求、例句、场景、短文、对话、词库和选项都应尽量进入 content_items，避免只提取大题标题。\n"
+        "\n"
+        "answer_items 是参考答案区的唯一数据源。每个元素代表一条可展示答案，字段为：\n"
+        "- answer_id: 稳定 ID，建议 q1-a1, q1-a2。\n"
         "- block_id: 所属 question_blocks[].block_id，必须能对应到某个题目块。\n"
+        "- order: 在所属题块内的答案顺序，从 1 开始，必须与图片题号或阅读顺序一致。\n"
         "- number: 题号，字符串或 null，支持 1、A、1a 等。\n"
-        "- line_type: 只能是 fill_blank, choice, picture_word, matching, sentence_ordering, "
+        "- answer_type: 只能是 fill_blank, choice, picture_word, matching, sentence_ordering, "
         "reading_qa, translation, correction, copying, calculation, proof, short_answer, composition, pinyin, other。\n"
-        "- plain_text: 完整答案文本，不含题号，用于整行朗读。\n"
-        "- segments: 数组，至少一个元素；元素字段 text 和 role。\n"
-        "- answer_lines 必须至少 1 项。理科题也必须输出最终答案或关键填写内容；solution_steps 只表示过程，不能替代 answer_lines。\n"
+        "- plain_text: 完整答案文本，不含题号，用于展示和复制；不要写“第X题解答”，不要放大段题解、原因分析或步骤说明。\n"
+        "- speak_text: 适合 TTS 的读法；数学公式可写自然语言读法。\n"
+        "- display: 前端渲染结构；mode 根据题型选择，format 表示显示格式，latex 放 LaTeX 源码或 null，runs 保留高亮角色和换行。\n"
+        "- answer_items 必须至少 1 项。理科题也必须输出最终答案或关键填写内容；solution_steps 只表示过程，不能替代 answer_items。\n"
+        "- 逐题题解、推理、选项排除、计算过程必须放入对应 block_id 的 solution_steps；前端会把这些步骤直接展示在该题答案后面。\n"
+        "- 数学/物理/化学公式：display.mode 使用 math_block；普通 Unicode/纯文本公式用 format=plain_math；LaTeX 公式用 format=latex 且 latex 放源码，同时 plain_text 必须给可读纯文本兜底。\n"
+        "- 各学段和各类题型中的常见计算、方程、函数、几何、概率统计、物理化学公式与单位换算，优先用 format=plain_math，并在 plain_text 和 runs.text 中输出 Android 可直接显示的 Unicode/纯文本公式；不要为了简单公式输出 LaTeX 源码。\n"
+        "- 不要在 plain_text、display.runs[].text、solution_steps[].content_zh、formula、result 中使用 LaTeX 美元分隔符 $...$；需要公式时直接写可读公式文本。\n"
         "\n"
-        "question_instruction 规则：\n"
-        "- text 必须尽量提取图片中原始题目要求，保持原文格式。\n"
-        "- meaning_zh 是该题目要求的中文解释。\n"
-        "- confidence 表示原文识别置信度，清晰可靠 0.9-1.0；部分遮挡/模糊则降低。\n"
-        "- 如果图片里没有可见题目要求，text 和 meaning_zh 用空字符串，confidence=0，"
-        "并在 uncertainty 中说明。\n"
-        "- 如果图片中有多个独立题目要求，顶层 question_instruction 使用最上方共同要求；"
-        "各题目块自己的题目要求必须放入 question_blocks[].question_instruction。\n"
-        "\n"
-        "segments.role 只能是：\n"
+        "display.runs[].role 只能是：\n"
         "- given: 题目原本已有的文字。\n"
         "- answer: 学生需要填写、选择或生成的答案。\n"
         "- connector: 连接符号，如箭头、短横线、冒号。\n"
         "- correction: 改错题中订正后的正确内容。\n"
+        "- student_answer: 图片中学生已经写出的答案。\n"
+        "\n"
+        "solution_steps 规则：\n"
+        "- 每个需要解释、推理、计算或排除选项的题目，都要把逐题题解放入 solution_steps。\n"
+        "- solution_steps[].block_id 必须指向对应题目块；同一题的步骤按 number 顺序排列。\n"
+        "- answer_items 只回答“答案是什么”，solution_steps 回答“为什么/怎么算/错在哪里”。\n"
+        "- 选择题的选项排除、概率题的判断理由、几何题的公式推导，都属于 solution_steps，不要塞进 answer_items.plain_text。\n"
+        "- solution_steps[].content_zh 是给家长和学生直接阅读的中文说明，不要夹杂 `$\\frac{...}{...}$` 这类源码；公式优先放入 formula 字段并给可读纯文本。\n"
+        "\n"
+        "student_answer_reviews 规则：\n"
+        "- 只有图片里存在学生手写/已填写答案时才输出对应批改项；没有则输出空数组。\n"
+        "- 必须区分印刷题面(given)、学生答案(student_answer)和标准答案(correct_answer)。\n"
+        "- status 只能是 correct, incorrect, partially_correct, unanswered, unclear, not_applicable。\n"
+        "- 看不清学生答案时用 unclear，并在 feedback_zh 说明；开放题不适合判唯一对错时用 not_applicable 或 partially_correct。\n"
+        "- 错题的逐题详细分析优先放入对应 block_id 的 solution_steps；student_answer_reviews.feedback_zh 只放短提示。\n"
+        "- explanation_zh 只放整体总结、共性错因或全局提醒，不要堆放逐题题解；逐题内容必须回到 solution_steps。\n"
         "\n"
         "通用题型规则（所有学科通用，选择题和填空题各学科都可能出现）：\n"
         "- 填空、补全句子、看图填空：plain_text 必须是补全后的完整句子或完整短语，不允许只输出填空词；"
-        "segments 中题目已有文字标为 given，填入答案标为 answer。\n"
+        "display.runs 中题目已有文字标为 given，填入答案标为 answer。\n"
         "- 选择题：选项字母和选中内容标为 answer。\n"
         "- 看图写词/短语：答案整体标为 answer。\n"
         "- 连线/匹配：题目已有内容可标为 given，配对关系或选中编号标为 answer。\n"
@@ -283,18 +325,18 @@ def _compose_subject_prompt(subject: str) -> str:
         + type_notes_block
         + "\n"
         "一致性硬约束（务必遵守）：\n"
-        "- plain_text 必须严格等于 segments 中各 text 字段按顺序拼接的结果，只允许去除整行首尾空白；"
-        "不得出现 plain_text 与 segments 内容不一致。这样可保证朗读文本与高亮内容完全一致。\n"
+        "- plain_text 必须严格等于 display.runs 中各 text 字段按顺序拼接的结果，只允许去除整行首尾空白；"
+        "不得出现 plain_text 与 display.runs 内容不一致。这样可保证展示文本与高亮内容完全一致。\n"
+        "- 每个 question_blocks[].order 在整张图内唯一；每个 answer_items[].order 在同一 block_id 内唯一。\n"
         "\n"
         "输出质量规则：\n"
-        "- 若图片中有多个题目块，必须先按题目块顺序输出 question_blocks，再按题目块顺序输出 answer_lines。\n"
-        "- answer_lines 与 solution_steps 的 block_id 必须对应 question_blocks；不确定归属时应保留独立题目块并设置 uncertainty，不要把多题内容合并到第一个题目块。\n"
-        "- 若题目含编号，请按检测到的编号顺序给出 answer_lines；若无编号，请按题面阅读顺序组织。\n"
-        "- 同一张图中两个相关题目不能混成一个题目块；例如第一题先补全单词、第二题再用这些词补句子，"
-        "必须输出 q1 和 q2 两个 question_blocks。\n"
+        "- 若图片中有多个题目块，必须用 question_blocks[].order 表达题块顺序，再用 answer_items[].order 表达题内答案顺序。\n"
+        "- answer_items、student_answer_reviews 与 solution_steps 的 block_id 必须对应 question_blocks；不确定归属时应保留独立题目块并设置 uncertainty，不要把多题内容合并到第一个题目块。\n"
+        "- 若题目含编号，请按检测到的编号顺序给出 answer_items.order；若无编号，请按题面阅读顺序组织。\n"
+        "- 同一张图中多个相关题目不能混成一个题目块；每个独立可批改小题必须按实际阅读顺序拆成独立 question_blocks。\n"
+        "- 大题标题、题型说明、共同材料、例句、词库、阅读材料不决定题卡粒度；它们只能作为 content_items 归属到相关小题。\n"
         "- learning_points 只收录有助于理解题目、答案或易错点的知识点，不要硬凑；label 可写 grammar, phrase, pinyin, phonics 等自由标签。\n"
-        "- read_units 只收录适合 Android TTS 朗读的自然语言；复杂数学公式不要强行放入；label 可写 instruction, answer, explanation 等自由标签。\n"
-        "- read_units 应尽量包含题目要求和答案解释中适合朗读的内容。\n"
+        "- 所有适合朗读的题面内容放在 content_items[].speak_text；答案读法放在 answer_items[].speak_text。\n"
         "- 如果某个答案不确定，仍按编号保留位置，并在 uncertainty 中说明。\n"
         "\n"
         "不确定性规则：\n"
@@ -320,11 +362,183 @@ class ParsePipeline:
     def _build_prompt(self, subject: str) -> str:
         return _compose_subject_prompt(subject)
 
+    def _coerce_order(self, value: Any, fallback: int) -> int:
+        try:
+            order = int(value)
+        except (TypeError, ValueError):
+            order = fallback
+        return order if order > 0 else fallback
+
+    def _normalize_content_type(self, raw: Any) -> str:
+        value = str(raw or "other").strip().lower()
+        value = CONTENT_ITEM_TYPE_ALIASES.get(value, value)
+        return value if value in CONTENT_ITEM_TYPES else "other"
+
+    def _detect_language(self, text: str) -> str:
+        has_ascii = bool(re.search(r"[A-Za-z]", text))
+        has_cjk = bool(re.search(r"[\u4e00-\u9fff]", text))
+        if has_ascii and has_cjk:
+            return "mixed"
+        if has_ascii:
+            return "en"
+        if has_cjk:
+            return "zh"
+        return "unknown"
+
+    def _display_mode_for_answer_type(self, answer_type: str) -> str:
+        return DISPLAY_MODES_BY_ANSWER_TYPE.get(answer_type, "inline_segments")
+
+    def _display_format_for_answer_type(self, answer_type: str) -> str:
+        if answer_type in {"calculation", "proof"}:
+            return "plain_math"
+        return "plain_text"
+
+    def _normalize_answer_type(self, raw: Any) -> str:
+        value = str(raw or "other").strip().lower()
+        return value if value in ANSWER_TYPES else "other"
+
+    def _normalize_display(
+        self,
+        raw_display: Any,
+        plain_text: str,
+        answer_type: str,
+        legacy_segments: Any = None,
+    ) -> dict[str, Any]:
+        mode = self._display_mode_for_answer_type(answer_type)
+        display_format = self._display_format_for_answer_type(answer_type)
+        latex: str | None = None
+        preserve_newlines = "\n" in plain_text or mode in {"math_block", "paragraph", "table"}
+        runs: list[dict[str, str]] = []
+        allowed_modes = {
+            "inline_segments",
+            "math_block",
+            "paragraph",
+            "choice",
+            "matching",
+            "table",
+            "pinyin",
+            "copying",
+            "plain",
+        }
+        allowed_roles = {"given", "answer", "connector", "correction", "student_answer"}
+
+        if isinstance(raw_display, dict):
+            raw_mode = str(raw_display.get("mode") or "").strip().lower()
+            if raw_mode in allowed_modes:
+                mode = raw_mode
+            raw_format = str(raw_display.get("format") or "").strip().lower()
+            if raw_format in DISPLAY_FORMATS:
+                display_format = raw_format
+            if raw_display.get("latex") is not None:
+                latex_value = str(raw_display.get("latex")).strip()
+                latex = latex_value or None
+            preserve_newlines = bool(raw_display.get("preserve_newlines", preserve_newlines))
+            raw_runs = raw_display.get("runs")
+            if isinstance(raw_runs, list):
+                for run in raw_runs:
+                    if not isinstance(run, dict):
+                        continue
+                    text = str(run.get("text") or "")
+                    if not text:
+                        continue
+                    role = str(run.get("role") or "answer").strip().lower()
+                    runs.append({"text": text, "role": role if role in allowed_roles else "answer"})
+
+        if not runs and isinstance(legacy_segments, list):
+            for segment in legacy_segments:
+                if not isinstance(segment, dict):
+                    continue
+                text = str(segment.get("text") or "")
+                if not text:
+                    continue
+                role = str(segment.get("role") or "answer").strip().lower()
+                runs.append({"text": text, "role": role if role in allowed_roles else "answer"})
+
+        concat = "".join(run["text"] for run in runs).strip()
+        if not runs or (concat and concat != plain_text):
+            runs = [{"text": plain_text, "role": "answer"}]
+
+        if mode == "math_block" and display_format == "plain_text":
+            display_format = "plain_math"
+
+        return {
+            "mode": mode,
+            "format": display_format,
+            "latex": latex,
+            "preserve_newlines": preserve_newlines,
+            "runs": runs,
+        }
+
+    def _split_multiline_content_item(
+        self,
+        item: dict[str, Any],
+        block_id: str,
+        item_index: int,
+    ) -> list[dict[str, Any]]:
+        text = str(item.get("text") or "").strip()
+        if not text:
+            return []
+
+        text_lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not text_lines:
+            return []
+        meaning_raw = item.get("meaning_zh")
+        meaning_lines: list[str | None]
+        if meaning_raw is not None:
+            raw_meaning_lines = [
+                line.strip() for line in str(meaning_raw).splitlines() if line.strip()
+            ]
+            meaning_lines = (
+                raw_meaning_lines
+                if len(raw_meaning_lines) == len(text_lines)
+                else [str(meaning_raw).strip() or None] + [None] * (len(text_lines) - 1)
+            )
+        else:
+            meaning_lines = [None] * len(text_lines)
+
+        speak_raw = item.get("speak_text")
+        if speak_raw is not None:
+            raw_speak_lines = [line.strip() for line in str(speak_raw).splitlines() if line.strip()]
+            speak_lines = raw_speak_lines if len(raw_speak_lines) == len(text_lines) else text_lines
+        else:
+            speak_lines = text_lines
+
+        base_item_id = str(item.get("item_id") or f"{block_id}-c{item_index + 1}").strip()
+        base_order = self._coerce_order(item.get("order"), item_index + 1)
+        raw_group_id = item.get("group_id")
+        group_id = (
+            str(raw_group_id).strip()
+            if raw_group_id is not None and str(raw_group_id).strip()
+            else (base_item_id if len(text_lines) > 1 else None)
+        )
+        content_type = self._normalize_content_type(item.get("type"))
+        language_raw = str(item.get("language") or "").strip().lower()
+
+        split_items: list[dict[str, Any]] = []
+        for line_index, line in enumerate(text_lines):
+            language = language_raw if language_raw in {"zh", "en", "mixed", "unknown"} else self._detect_language(line)
+            item_id = base_item_id if len(text_lines) == 1 else f"{base_item_id}-{line_index + 1}"
+            split_items.append(
+                {
+                    "item_id": item_id,
+                    "order": base_order + line_index,
+                    "group_id": group_id,
+                    "type": content_type,
+                    "text": line,
+                    "meaning_zh": meaning_lines[line_index],
+                    "language": language,
+                    "speak_text": speak_lines[line_index] or line,
+                    "speakable": bool(item.get("speakable", True)),
+                }
+            )
+        return split_items
+
     def _normalize_candidate(self, candidate: Any) -> Any:
         if not isinstance(candidate, dict):
             return candidate
 
         out = dict(candidate)
+        out["schema_version"] = "4.0"
         blocks = out.get("question_blocks")
         if isinstance(blocks, list):
             normalized_blocks: list[Any] = []
@@ -333,21 +547,59 @@ class ParsePipeline:
                     normalized_blocks.append(block)
                     continue
                 normalized_block = dict(block)
-                normalized_block["block_id"] = str(
-                    normalized_block.get("block_id") or f"q{index + 1}"
+                block_id = str(normalized_block.get("block_id") or f"q{index + 1}").strip()
+                normalized_block["block_id"] = block_id
+                normalized_block["order"] = self._coerce_order(
+                    normalized_block.get("order"), index + 1
+                )
+                normalized_block["title"] = str(
+                    normalized_block.get("title") or f"第{index + 1}题"
                 ).strip()
-                instruction = normalized_block.get("question_instruction")
-                if isinstance(instruction, str):
-                    normalized_block["question_instruction"] = {
-                        "text": instruction.strip(),
-                        "meaning_zh": "",
-                        "confidence": 0.0,
-                    }
-                normalized_blocks.append(normalized_block)
-            out["question_blocks"] = normalized_blocks
+                normalized_block["question_meaning_zh"] = str(
+                    normalized_block.get("question_meaning_zh") or "完成该题目块。"
+                ).strip()
 
-        # 已知题目块 ID，用于 answer_lines / solution_steps 缺失 block_id 时兜底，
-        # 避免本可成立的结果因引用缺失而触发额外的修复模型调用。
+                normalized_items: list[dict[str, Any]] = []
+                content_items = normalized_block.get("content_items")
+                if isinstance(content_items, list):
+                    for item_index, item in enumerate(content_items):
+                        if not isinstance(item, dict):
+                            continue
+                        normalized_items.extend(
+                            self._split_multiline_content_item(item, block_id, item_index)
+                        )
+                legacy_instruction = normalized_block.pop("question_instruction", None)
+                if not normalized_items and legacy_instruction:
+                    if isinstance(legacy_instruction, dict):
+                        text = str(legacy_instruction.get("text") or "").strip()
+                        meaning = str(legacy_instruction.get("meaning_zh") or "").strip() or None
+                    else:
+                        text = str(legacy_instruction).strip()
+                        meaning = None
+                    if text:
+                        normalized_items.append(
+                            {
+                                "item_id": f"{block_id}-c1",
+                                "order": 1,
+                                "group_id": None,
+                                "type": "instruction",
+                                "text": text,
+                                "meaning_zh": meaning,
+                                "language": self._detect_language(text),
+                                "speak_text": text,
+                                "speakable": True,
+                            }
+                        )
+                sorted_items = sorted(normalized_items, key=lambda item: item["order"])
+                for item_order, item in enumerate(sorted_items, start=1):
+                    item["order"] = item_order
+                normalized_block["content_items"] = sorted_items
+                normalized_blocks.append(normalized_block)
+            out["question_blocks"] = sorted(
+                normalized_blocks,
+                key=lambda block: block.get("order", 10**9) if isinstance(block, dict) else 10**9,
+            )
+
         known_block_ids: list[str] = []
         qb = out.get("question_blocks")
         if isinstance(qb, list):
@@ -358,45 +610,136 @@ class ParsePipeline:
                         known_block_ids.append(bid)
         fallback_block_id = known_block_ids[0] if len(known_block_ids) == 1 else ""
 
-        lines = out.get("answer_lines")
-        if isinstance(lines, list):
-            normalized_lines: list[Any] = []
-            for line in lines:
-                if not isinstance(line, dict):
-                    normalized_lines.append(line)
+        raw_answer_items = out.get("answer_items")
+        if not isinstance(raw_answer_items, list) and isinstance(out.get("answer_lines"), list):
+            raw_answer_items = out.get("answer_lines")
+        if isinstance(raw_answer_items, list):
+            normalized_answers: list[Any] = []
+            for index, item in enumerate(raw_answer_items):
+                if not isinstance(item, dict):
+                    normalized_answers.append(item)
                     continue
-                normalized_line = dict(line)
-                block_id = str(normalized_line.get("block_id") or "").strip()
-                # 单题时允许补齐 block_id；多题场景保留原值，让 schema guard 暴露归属错误。
+                normalized_item = dict(item)
+                block_id = str(normalized_item.get("block_id") or "").strip()
                 if (not block_id) and fallback_block_id:
                     block_id = fallback_block_id
-                normalized_line["block_id"] = block_id
-                if normalized_line.get("number") is not None:
-                    normalized_line["number"] = str(normalized_line["number"]).strip()
+                answer_type = self._normalize_answer_type(
+                    normalized_item.get("answer_type") or normalized_item.get("line_type")
+                )
+                plain_text = str(normalized_item.get("plain_text") or "").strip()
+                if not plain_text:
+                    display = normalized_item.get("display")
+                    runs = display.get("runs") if isinstance(display, dict) else normalized_item.get("segments")
+                    if isinstance(runs, list):
+                        plain_text = "".join(
+                            str(run.get("text") or "")
+                            for run in runs
+                            if isinstance(run, dict)
+                        ).strip()
+                if not plain_text:
+                    plain_text = "未能识别答案"
 
-                segments = normalized_line.get("segments")
-                plain_text = str(normalized_line.get("plain_text") or "").strip()
-                # segments 缺失但有 plain_text：用 plain_text 兜底成单段。
-                if not segments and plain_text:
-                    segments = [{"text": plain_text, "role": "answer"}]
-                    normalized_line["segments"] = segments
+                speak_text = None
+                if normalized_item.get("speak_text") is not None:
+                    speak_text = str(normalized_item.get("speak_text")).strip() or None
+                normalized_answers.append(
+                    {
+                        "answer_id": str(
+                            normalized_item.get("answer_id") or f"{block_id or 'q'}-a{index + 1}"
+                        ).strip(),
+                        "block_id": block_id,
+                        "order": self._coerce_order(normalized_item.get("order"), index + 1),
+                        "number": (
+                            str(normalized_item.get("number")).strip()
+                            if normalized_item.get("number") is not None
+                            else None
+                        ),
+                        "answer_type": answer_type,
+                        "plain_text": plain_text,
+                        "speak_text": speak_text if speak_text is not None else plain_text,
+                        "display": self._normalize_display(
+                            normalized_item.get("display"),
+                            plain_text,
+                            answer_type,
+                            legacy_segments=normalized_item.get("segments"),
+                        ),
+                    }
+                )
+            block_order_index = {bid: index for index, bid in enumerate(known_block_ids)}
+            out["answer_items"] = sorted(
+                normalized_answers,
+                key=lambda item: (
+                    block_order_index.get(item.get("block_id"), 10**9)
+                    if isinstance(item, dict)
+                    else 10**9,
+                    item.get("order", 10**9) if isinstance(item, dict) else 10**9,
+                ),
+            )
+        out.pop("answer_lines", None)
 
-                # 一致性：plain_text 必须等于 segments 文本顺序拼接（仅去首尾空白）。
-                # 如果模型给出的 segments 与 plain_text 不一致，保留 plain_text 并重建单段，
-                # 避免把完整答案改坏。
-                if isinstance(segments, list) and segments:
-                    concat = "".join(
-                        str(seg.get("text", ""))
-                        for seg in segments
-                        if isinstance(seg, dict)
-                    ).strip()
-                    if concat and concat != plain_text:
-                        normalized_line["segments"] = [
-                            {"text": plain_text or concat, "role": "answer"}
-                        ]
-
-                normalized_lines.append(normalized_line)
-            out["answer_lines"] = normalized_lines
+        raw_reviews = out.get("student_answer_reviews")
+        if isinstance(raw_reviews, list):
+            normalized_reviews: list[Any] = []
+            for index, review in enumerate(raw_reviews):
+                if not isinstance(review, dict):
+                    normalized_reviews.append(review)
+                    continue
+                normalized_review = dict(review)
+                block_id = str(normalized_review.get("block_id") or "").strip()
+                if (not block_id) and fallback_block_id:
+                    block_id = fallback_block_id
+                status = str(normalized_review.get("status") or "unclear").strip().lower()
+                if status not in {
+                    "correct",
+                    "incorrect",
+                    "partially_correct",
+                    "unanswered",
+                    "unclear",
+                    "not_applicable",
+                }:
+                    status = "unclear"
+                try:
+                    confidence = float(normalized_review.get("confidence"))
+                except (TypeError, ValueError):
+                    confidence = 0.8
+                normalized_reviews.append(
+                    {
+                        "review_id": str(
+                            normalized_review.get("review_id") or f"{block_id or 'q'}-r{index + 1}"
+                        ).strip(),
+                        "block_id": block_id,
+                        "answer_id": (
+                            str(normalized_review.get("answer_id")).strip()
+                            if normalized_review.get("answer_id") is not None
+                            else None
+                        ),
+                        "order": self._coerce_order(normalized_review.get("order"), index + 1),
+                        "number": (
+                            str(normalized_review.get("number")).strip()
+                            if normalized_review.get("number") is not None
+                            else None
+                        ),
+                        "student_answer": (
+                            str(normalized_review.get("student_answer")).strip()
+                            if normalized_review.get("student_answer") is not None
+                            else None
+                        ),
+                        "correct_answer": (
+                            str(normalized_review.get("correct_answer")).strip()
+                            if normalized_review.get("correct_answer") is not None
+                            else None
+                        ),
+                        "status": status,
+                        "feedback_zh": str(
+                            normalized_review.get("feedback_zh") or "需要人工确认。"
+                        ).strip(),
+                        "confidence": max(0.0, min(1.0, confidence)),
+                    }
+                )
+            out["student_answer_reviews"] = sorted(
+                normalized_reviews,
+                key=lambda item: item.get("order", 10**9) if isinstance(item, dict) else 10**9,
+            )
 
         steps = out.get("solution_steps")
         if isinstance(steps, list):
@@ -444,49 +787,17 @@ class ParsePipeline:
                 normalized_points.append(normalized_item)
             out["learning_points"] = normalized_points
 
-        read_units = out.get("read_units")
-        if isinstance(read_units, list):
-            normalized_units: list[Any] = []
-            for unit in read_units:
-                if not isinstance(unit, dict):
-                    normalized_units.append(unit)
-                    continue
-                normalized_unit = dict(unit)
-                unit_type = str(normalized_unit.get("unit_type") or "").strip().lower()
-                if normalized_unit.get("label") is None and unit_type:
-                    normalized_unit["label"] = unit_type
-                if unit_type in READ_UNIT_TYPE_ALIASES:
-                    mapped = READ_UNIT_TYPE_ALIASES[unit_type]
-                    normalized_unit["unit_type"] = mapped
-                    logger.info(
-                        "enum_normalized field=read_units.unit_type from=%s to=%s label=%s",
-                        unit_type,
-                        mapped,
-                        normalized_unit.get("label"),
-                    )
-                elif unit_type not in READ_UNIT_TYPES:
-                    normalized_unit["unit_type"] = "text"
-                    logger.info(
-                        "enum_defaulted field=read_units.unit_type from=%s to=text label=%s",
-                        unit_type,
-                        normalized_unit.get("label"),
-                    )
-                normalized_units.append(normalized_unit)
-            out["read_units"] = normalized_units
-
         # 补全缺失的可选字段，使其满足 schema guard 的严格字段集校验，
         # 避免"模型只是漏了某个可选字段"也要多调一次修复模型。
         out.setdefault("solution_steps", [])
         out.setdefault("learning_points", [])
-        out.setdefault("read_units", [])
-        out.setdefault(
-            "question_instruction",
-            {"text": "", "meaning_zh": "", "confidence": 0.0},
-        )
+        out.setdefault("student_answer_reviews", [])
         out.setdefault(
             "uncertainty",
             {"requires_review": False, "confidence": 0.8, "reason": None},
         )
+        out.pop("question_instruction", None)
+        out.pop("read_units", None)
         return out
 
     def _normalize_word(self, raw: str) -> str:
@@ -509,18 +820,12 @@ class ParsePipeline:
             key = self._normalize_word(item.term)
             if key:
                 keys.add(key)
-        for unit in result.read_units:
-            if unit.unit_type != "word" or not unit.meaning_zh:
-                continue
-            key = self._normalize_word(unit.text)
-            if key:
-                keys.add(key)
         return keys
 
     def _missing_vocabulary_words(self, result: HomeworkParseResult) -> list[str]:
         expected: list[str] = []
-        for line in result.answer_lines:
-            expected.extend(self._coverage_candidates(line.plain_text))
+        for item in result.answer_items:
+            expected.extend(self._coverage_candidates(item.plain_text))
         expected = list(dict.fromkeys(expected))
         if not expected:
             return []
@@ -557,7 +862,7 @@ class ParsePipeline:
             "要求：\n"
             "- items 数组必须覆盖输入 words 中每个词。\n"
             "- word 保持输入单词原样。\n"
-            "- meaning_zh 用简短中文释义，适合小学生/家长理解。\n"
+            "- meaning_zh 用简短中文释义，适合学习者和家长理解。\n"
             "- ipa 不确定可用 null。\n"
             f"输入：{payload}"
         )
@@ -571,16 +876,16 @@ class ParsePipeline:
             "不得重新解题，不得改变答案内容、题号、题目块、讲解含义。\n"
             "只输出一个 JSON 对象，不要 markdown，不要代码块，不要额外文字。\n"
             f"请求 subject 固定为：{subject}。输出 subject 必须等于该值。\n"
-            "顶层字段只能是：subject, question_meaning_zh, question_instruction, question_blocks, "
-            "answer_lines, solution_steps, explanation_zh, learning_points, read_units, uncertainty。\n"
+            "顶层字段只能是：schema_version, subject, question_meaning_zh, question_blocks, "
+            "answer_items, student_answer_reviews, solution_steps, explanation_zh, learning_points, uncertainty。\n"
+            "schema_version 必须是 \"4.0\"。\n"
+            "question_blocks[].content_items 必须存在；content_items[] 必须包含 item_id, order, group_id, type, text, meaning_zh, language, speak_text, speakable；没有题面内容用空数组。\n"
+            "answer_items[].display 必须包含 mode, format, latex, preserve_newlines, runs；runs[].role 只能是 given, answer, connector, correction, student_answer。\n"
             "learning_points[].category 只能是 word, concept, formula, unit, method, other；"
             "原始细分类放入 label。\n"
-            "read_units[].unit_type 只能是 word 或 text；原始细分类放入 label。\n"
-            "answer_lines[].segments[].role 只能是 given, answer, connector, correction。\n"
             "所有数组字段必须存在，没有内容用空数组。\n"
-            "question_instruction 必须是对象，字段 text, meaning_zh, confidence。\n"
-            "answer_lines、solution_steps、learning_points、read_units 中的 block_id 必须对应 question_blocks，"
-            "learning_points/read_units 的 block_id 可以为 null。\n"
+            "answer_items、student_answer_reviews、solution_steps、learning_points 中的 block_id 必须对应 question_blocks；"
+            "learning_points 的 block_id 可以为 null。\n"
             f"schema 错误：{error_detail}\n"
             f"待修复 JSON：{raw_json}"
         )
@@ -613,7 +918,7 @@ class ParsePipeline:
             return False
         if "not found in question_blocks" in detail:
             return False
-        if "segments" in detail and "role" in detail:
+        if "runs" in detail and "role" in detail:
             return False
         return True
 
@@ -629,12 +934,6 @@ class ParsePipeline:
             for item in updated.learning_points
             if item.category == "word"
         }
-        existing_word_units = {
-            self._normalize_word(unit.text)
-            for unit in updated.read_units
-            if unit.unit_type == "word"
-        }
-
         for raw in items:
             if not isinstance(raw, dict):
                 continue
@@ -656,16 +955,6 @@ class ParsePipeline:
                     )
                 )
                 existing_vocab.add(key)
-            if key not in existing_word_units:
-                updated.read_units.append(
-                    ReadUnit(
-                        unit_type="word",
-                        label="vocabulary",
-                        text=word,
-                        meaning_zh=meaning,
-                    )
-                )
-                existing_word_units.add(key)
         return updated
 
     async def _repair_missing_vocabulary(

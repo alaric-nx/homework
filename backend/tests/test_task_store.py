@@ -16,48 +16,55 @@ def _task_payload(updated_at: float, schema_version: int = TASK_RESULT_SCHEMA_VE
         "created_at": updated_at,
         "updated_at": updated_at,
         "result": {
+            "schema_version": "4.0",
             "subject": "english",
             "question_meaning_zh": "补全句子。\n补全完整句子。",
-            "question_instruction": {
-                "text": "Complete the sentence.",
-                "meaning_zh": "补全句子。",
-                "confidence": 0.95,
-            },
             "question_blocks": [
                 {
                     "block_id": "q1",
+                    "order": 1,
                     "title": "第1题",
-                    "question_instruction": {
-                        "text": "Complete the sentence.",
-                        "meaning_zh": "补全句子。",
-                        "confidence": 0.95,
-                    },
                     "question_meaning_zh": "补全完整句子。",
+                    "content_items": [
+                        {
+                            "item_id": "q1-c1",
+                            "order": 1,
+                            "group_id": None,
+                            "type": "instruction",
+                            "text": "Complete the sentence.",
+                            "meaning_zh": "补全句子。",
+                            "language": "en",
+                            "speak_text": "Complete the sentence.",
+                            "speakable": True,
+                        }
+                    ],
                 }
             ],
-            "answer_lines": [
+            "answer_items": [
                 {
+                    "answer_id": "q1-a1",
                     "block_id": "q1",
+                    "order": 1,
                     "number": "1",
-                    "line_type": "fill_blank",
+                    "answer_type": "fill_blank",
                     "plain_text": "I am a student.",
-                    "segments": [{"text": "I am a student.", "role": "answer"}],
+                    "speak_text": "I am a student.",
+                    "display": {
+                        "mode": "inline_segments",
+                        "format": "plain_text",
+                        "latex": None,
+                        "preserve_newlines": False,
+                        "runs": [{"text": "I am a student.", "role": "answer"}],
+                    },
                 }
             ],
+            "student_answer_reviews": [],
             "solution_steps": [],
             "explanation_zh": "I 后面用 am。",
             "learning_points": [
                 {"block_id": "q1", "term": "I", "explanation_zh": "我", "pronunciation": "/aɪ/", "category": "word", "label": "vocabulary"},
                 {"block_id": "q1", "term": "am", "explanation_zh": "是", "pronunciation": "/æm/", "category": "word", "label": "vocabulary"},
                 {"block_id": "q1", "term": "student", "explanation_zh": "学生", "pronunciation": "/ˈstuːdnt/", "category": "word", "label": "vocabulary"},
-            ],
-            "read_units": [
-                {
-                    "block_id": "q1",
-                    "unit_type": "text", "label": "sentence",
-                    "text": "I am a student.",
-                    "meaning_zh": "我是一名学生。",
-                }
             ],
             "uncertainty": {"requires_review": False, "confidence": 0.95, "reason": None},
         },

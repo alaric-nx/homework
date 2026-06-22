@@ -409,11 +409,11 @@ class LLMClient:
 
     def _extract_candidate_payload(self, value: Any) -> dict[str, Any] | None:
         # 仅用最具辨识度的核心字段来"认出"我们的结果对象。
-        # 不要求 10 个字段全齐，这样模型即便漏了某个可选数组（如 read_units），
+        # 不要求所有字段全齐，这样模型即便漏了某个可选数组，
         # 也能被识别后交给 normalize 补全 / schema 修复，而不是直接判 MODEL_FAILED。
         required = {
             "question_blocks",
-            "answer_lines",
+            "answer_items",
         }
 
         def walk(v: Any) -> dict[str, Any] | None:

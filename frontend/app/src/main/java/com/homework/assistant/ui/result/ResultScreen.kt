@@ -8,13 +8,16 @@ import android.os.Looper
 import android.view.MotionEvent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -67,16 +70,16 @@ import androidx.compose.ui.window.PopupProperties
 import com.google.gson.Gson
 import com.homework.assistant.HomeworkApplication
 import com.homework.assistant.R
-import com.homework.assistant.data.model.AnswerLine as ResultAnswerLine
+import com.homework.assistant.data.model.AnswerItem as ResultAnswerItem
+import com.homework.assistant.data.model.ContentItem as ResultContentItem
 import com.homework.assistant.data.model.LearningPoint
 import com.homework.assistant.data.model.ParseResult
 import com.homework.assistant.data.model.QuestionBlock
-import com.homework.assistant.data.model.ReadUnit
 import com.homework.assistant.data.model.SolutionStep
+import com.homework.assistant.data.model.StudentAnswerReview
 import com.homework.assistant.data.model.subjectLabel
 import java.util.Locale
 
-private val fallbackAnswerLinePattern = Regex("""^(\d+)[\.)]?\s+(.+)$""")
 private val speakTokenPattern = Regex("""[A-Za-z]+(?:'[A-Za-z]+)?|\d+|[^\w\s]""")
 private val stripWordPattern = Regex("""^[^a-z0-9']+|[^a-z0-9']+$""")
 private val whitespacePattern = Regex("""\s+""")
@@ -84,7 +87,14 @@ private val ResultCardShape = RoundedCornerShape(8.dp)
 private val TokenShape = RoundedCornerShape(7.dp)
 private val PageBackground = Color(0xFFF7F8FA)
 private val CardSurface = Color(0xFFFFFEFC)
+private val AlternateCardSurface = Color(0xFFEFF2F6)
 private val CardBorder = Color(0xFFE4E8EE)
+private val QuestionCardBorder = Color(0xFFD8DEE7)
+private val AlternateQuestionCardBorder = Color(0xFFC4CCD8)
+private val QuestionCardRail = Color(0xFFAEB6C2)
+private val AlternateQuestionCardRail = Color(0xFF7E8898)
+private val QuestionHeaderSurface = Color(0xFFF2F4F7)
+private val AlternateQuestionHeaderSurface = Color(0xFFE1E6ED)
 private val SoftPrimarySurface = Color(0xFFEAF3FF)
 private val SoftAccentSurface = Color(0xFFEAF7EF)
 private val SoftNeutralSurface = Color(0xFFF2F4F7)
@@ -97,16 +107,22 @@ private data class DisplayAnswerLine(
     val number: String?,
     val lineType: String,
     val text: String,
-    val segments: List<DisplayAnswerSegment>
+    val speakText: String,
+    val displayMode: String,
+    val displayFormat: String,
+    val latex: String?,
+    val preserveNewlines: Boolean,
+    val segments: List<DisplayAnswerSegment>,
+    val review: StudentAnswerReview?
 )
 
 private data class DisplayQuestionBlock(
     val blockId: String,
     val title: String,
-    val instructionText: String,
-    val instructionMeaning: String,
+    val contentItems: List<ResultContentItem>,
     val questionMeaning: String,
-    val lines: List<DisplayAnswerLine>
+    val lines: List<DisplayAnswerLine>,
+    val solutionSteps: List<SolutionStep>
 )
 
 private data class DisplayAnswerSegment(
@@ -154,6 +170,7 @@ private data class SubjectDisplayPolicy(
     val wordTip: FeatureVisibility,
     val translate: FeatureVisibility,
     val answerLineSpeak: Boolean,
+    val contentItemSpeak: Boolean,
     val showPronunciation: Boolean,
     val pronunciationLabel: String,
     val subject: String
@@ -168,8 +185,9 @@ private data class SubjectDisplayPolicy(
         fun forSubject(subject: String): SubjectDisplayPolicy = when (subject) {
             "english" -> SubjectDisplayPolicy(
                 wordTip = FeatureVisibility.ALWAYS,
-                translate = FeatureVisibility.ALWAYS,
+                translate = FeatureVisibility.WHEN_AVAILABLE,
                 answerLineSpeak = true,
+                contentItemSpeak = true,
                 showPronunciation = true,
                 pronunciationLabel = "音标",
                 subject = subject
@@ -178,6 +196,7 @@ private data class SubjectDisplayPolicy(
                 wordTip = FeatureVisibility.NEVER,
                 translate = FeatureVisibility.WHEN_AVAILABLE,
                 answerLineSpeak = true,
+                contentItemSpeak = true,
                 showPronunciation = true,
                 pronunciationLabel = "拼音",
                 subject = subject
@@ -186,6 +205,7 @@ private data class SubjectDisplayPolicy(
                 wordTip = FeatureVisibility.NEVER,
                 translate = FeatureVisibility.NEVER,
                 answerLineSpeak = false,
+                contentItemSpeak = false,
                 showPronunciation = false,
                 pronunciationLabel = "",
                 subject = subject
@@ -195,6 +215,7 @@ private data class SubjectDisplayPolicy(
                 wordTip = FeatureVisibility.WHEN_AVAILABLE,
                 translate = FeatureVisibility.WHEN_AVAILABLE,
                 answerLineSpeak = true,
+                contentItemSpeak = false,
                 showPronunciation = true,
                 pronunciationLabel = "读音",
                 subject = "general"
@@ -234,23 +255,21 @@ fun ResultScreen(
     val questionBlocks = remember(result) {
         buildDisplayQuestionBlocks(
             blocks = result?.question_blocks.orEmpty(),
-            answerLines = result?.answer_lines.orEmpty()
+            answerItems = result?.answer_items.orEmpty(),
+            reviews = result?.student_answer_reviews.orEmpty(),
+            solutionSteps = result?.solution_steps.orEmpty()
         )
     }
     val vocabResolver = remember(result) {
         VocabResolver(
             lookup = buildVocabularyLookup(
-                items = result?.learning_points.orEmpty(),
-                units = result?.read_units.orEmpty()
+                items = result?.learning_points.orEmpty()
             ),
             englishStemming = result?.subject == "english"
         )
     }
     val displayPolicy = remember(result) {
         SubjectDisplayPolicy.forSubject(result?.subject ?: "general")
-    }
-    val sentenceTranslationLookup = remember(result) {
-        buildSentenceTranslationLookup(result?.read_units.orEmpty())
     }
     val originalBitmap = remember(originalImagePath) {
         originalImagePath?.let { path ->
@@ -337,28 +356,16 @@ fun ResultScreen(
                     if (r.uncertainty.requires_review && !r.uncertainty.warning.isNullOrEmpty()) {
                         item { UncertaintyBanner(r.uncertainty.warning!!) }
                     }
-                    item {
-                        QuestionRequirementCard(
-                            title = stringResource(R.string.question_requirement),
-                            subject = r.subject,
-                            text = r.question_instruction.text,
-                            meaningZh = r.question_instruction.meaning_zh,
-                            onSpeak = {
-                                activeTip = null
-                                activeSentenceTip = null
-                                ttsManager.speak(it)
-                            }
-                        )
-                    }
+                    item { ReviewSummaryCard(r.student_answer_reviews) }
                     item { SectionCard(stringResource(R.string.question_meaning), r.question_meaning_zh) }
                     if (questionBlocks.isNotEmpty()) {
-                        questionBlocks.forEach { block ->
+                        questionBlocks.forEachIndexed { index, block ->
                             item {
                                 QuestionBlockAnswerCard(
                                     block = block,
+                                    cardIndex = index,
                                     vocabResolver = vocabResolver,
                                     displayPolicy = displayPolicy,
-                                    sentenceTranslationLookup = sentenceTranslationLookup,
                                     activeTip = activeTip,
                                     activeSentenceTip = activeSentenceTip,
                                     onTipChange = { activeTip = it },
@@ -386,9 +393,6 @@ fun ResultScreen(
                             SectionCard(stringResource(R.string.reference_answer), "暂无参考答案")
                         }
                     }
-                    if (r.solution_steps.isNotEmpty()) {
-                        item { SolutionStepsCard(r.solution_steps) }
-                    }
                     item { SectionCard(stringResource(R.string.explanation), r.explanation_zh) }
                     if (r.learning_points.isNotEmpty()) {
                         item { LearningPointsCard(r.learning_points, displayPolicy) }
@@ -402,9 +406,9 @@ fun ResultScreen(
 @Composable
 private fun QuestionBlockAnswerCard(
     block: DisplayQuestionBlock,
+    cardIndex: Int,
     vocabResolver: VocabResolver,
     displayPolicy: SubjectDisplayPolicy,
-    sentenceTranslationLookup: Map<String, String>,
     activeTip: WordTipTarget?,
     activeSentenceTip: SentenceTipTarget?,
     onTipChange: (WordTipTarget?) -> Unit,
@@ -413,6 +417,125 @@ private fun QuestionBlockAnswerCard(
     onSpeakLine: (String) -> Unit,
     onSpeakWord: (String) -> Unit
 ) {
+    val isAlternate = cardIndex % 2 == 1
+    val containerColor = if (isAlternate) AlternateCardSurface else CardSurface
+    val railColor = if (isAlternate) AlternateQuestionCardRail else QuestionCardRail
+    val borderColor = if (isAlternate) AlternateQuestionCardBorder else QuestionCardBorder
+    val headerColor = if (isAlternate) AlternateQuestionHeaderSurface else QuestionHeaderSurface
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = ResultCardShape,
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isAlternate) 2.dp else 1.dp),
+        border = BorderStroke(1.dp, borderColor)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min)
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(7.dp)
+                    .fillMaxHeight()
+                    .background(railColor)
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                val visibleContentItems = block.contentItems.filter { shouldShowContentItem(it, displayPolicy) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(headerColor, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        block.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF263241)
+                    )
+                }
+                if (visibleContentItems.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        visibleContentItems.forEach { item ->
+                            CompactInstructionRow(
+                                text = item.text,
+                                meaningZh = item.meaning_zh.orEmpty(),
+                                speakText = item.speak_text ?: item.text,
+                                speakable = item.speakable && displayPolicy.contentItemSpeak,
+                                label = contentItemLabel(item.type),
+                                onSpeak = onSpeakInstruction
+                            )
+                        }
+                    }
+                }
+                if (block.questionMeaning.isNotBlank()) {
+                    Text(
+                        block.questionMeaning,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFF475467)
+                    )
+                }
+                if (block.lines.isNotEmpty()) {
+                    HorizontalDivider(color = Color(0xFFE9EDF3))
+                    val inlineStepsByNumber = buildInlineStepsByAnswerNumber(
+                        lines = block.lines,
+                        steps = block.solutionSteps
+                    )
+                    val inlineStepNumbers = inlineStepsByNumber.keys
+                    val remainingSolutionSteps = if (inlineStepsByNumber.isEmpty()) {
+                        block.solutionSteps
+                    } else {
+                        block.solutionSteps.filter { step ->
+                            normalizedItemNumber(step.number) !in inlineStepNumbers
+                        }
+                    }
+                    AnswerPronunciationContent(
+                        lines = block.lines,
+                        stepsByNumber = inlineStepsByNumber,
+                        vocabResolver = vocabResolver,
+                        displayPolicy = displayPolicy,
+                        activeTip = activeTip,
+                        activeSentenceTip = activeSentenceTip,
+                        onTipChange = onTipChange,
+                        onSentenceTipChange = onSentenceTipChange,
+                        onSpeakLine = onSpeakLine,
+                        onSpeakWord = onSpeakWord
+                    )
+                    if (remainingSolutionSteps.isNotEmpty()) {
+                        HorizontalDivider(color = Color(0xFFE9EDF3))
+                        InlineSolutionStepsSection(remainingSolutionSteps)
+                    }
+                } else {
+                    Text("暂无参考答案", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF667085))
+                    if (block.solutionSteps.isNotEmpty()) {
+                        HorizontalDivider(color = Color(0xFFE9EDF3))
+                        InlineSolutionStepsSection(block.solutionSteps)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReviewSummaryCard(reviews: List<StudentAnswerReview>) {
+    if (reviews.isEmpty()) return
+
+    val wrongNumbers = reviewNumbers(
+        reviews = reviews,
+        statuses = setOf("incorrect", "partially_correct")
+    )
+    val unclearNumbers = reviewNumbers(reviews = reviews, statuses = setOf("unclear"))
+    val unansweredNumbers = reviewNumbers(reviews = reviews, statuses = setOf("unanswered"))
+    val hasIssues = wrongNumbers.isNotEmpty() || unclearNumbers.isNotEmpty() || unansweredNumbers.isNotEmpty()
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = ResultCardShape,
@@ -422,46 +545,60 @@ private fun QuestionBlockAnswerCard(
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(
-                block.title,
+                "批改总览",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF174A7C)
             )
-            if (block.instructionText.isNotBlank() || block.instructionMeaning.isNotBlank()) {
-                CompactInstructionRow(
-                    text = block.instructionText,
-                    meaningZh = block.instructionMeaning,
-                    onSpeak = onSpeakInstruction
-                )
-            }
-            if (block.questionMeaning.isNotBlank()) {
-                Text(
-                    block.questionMeaning,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF475467)
-                )
-            }
-            if (block.lines.isNotEmpty()) {
-                HorizontalDivider(color = Color(0xFFE9EDF3))
-                AnswerPronunciationContent(
-                    lines = block.lines,
-                    vocabResolver = vocabResolver,
-                    displayPolicy = displayPolicy,
-                    sentenceTranslationLookup = sentenceTranslationLookup,
-                    activeTip = activeTip,
-                    activeSentenceTip = activeSentenceTip,
-                    onTipChange = onTipChange,
-                    onSentenceTipChange = onSentenceTipChange,
-                    onSpeakLine = onSpeakLine,
-                    onSpeakWord = onSpeakWord
-                )
+            if (hasIssues) {
+                ReviewSummaryRow("错题", wrongNumbers, Color(0xFFD32F2F))
+                ReviewSummaryRow("看不清", unclearNumbers, Color(0xFFB26A00))
+                ReviewSummaryRow("未作答", unansweredNumbers, Color(0xFF667085))
             } else {
-                Text("暂无参考答案", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF667085))
+                Text(
+                    text = "未发现错误题号",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF2E7D32)
+                )
             }
         }
+    }
+}
+
+private fun reviewNumbers(
+    reviews: List<StudentAnswerReview>,
+    statuses: Set<String>
+): List<String> {
+    return reviews
+        .sortedWith(compareBy<StudentAnswerReview>(
+            { it.block_id },
+            { it.order.takeIf { order -> order > 0 } ?: Int.MAX_VALUE }
+        ))
+        .filter { it.status.lowercase(Locale.US) in statuses }
+        .mapNotNull { review ->
+            review.number?.trim()?.takeIf { it.isNotBlank() }
+        }
+        .distinct()
+}
+
+@Composable
+private fun ReviewSummaryRow(label: String, numbers: List<String>, color: Color) {
+    if (numbers.isEmpty()) return
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = color
+        )
+        Text(
+            text = numbers.joinToString("、"),
+            style = MaterialTheme.typography.bodyMedium,
+            color = InkText
+        )
     }
 }
 
@@ -469,6 +606,9 @@ private fun QuestionBlockAnswerCard(
 private fun CompactInstructionRow(
     text: String,
     meaningZh: String,
+    speakText: String = text,
+    speakable: Boolean = true,
+    label: String? = null,
     onSpeak: (String) -> Unit
 ) {
     val instructionText = text.trim()
@@ -478,6 +618,13 @@ private fun CompactInstructionRow(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             if (instructionText.isNotBlank()) {
+                label?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF667085)
+                    )
+                }
                 Text(
                     instructionText,
                     style = MaterialTheme.typography.bodyLarge,
@@ -497,10 +644,10 @@ private fun CompactInstructionRow(
         IconButton(
             onClick = {
                 if (instructionText.isNotBlank()) {
-                    onSpeak(instructionText)
+                    onSpeak(speakText.ifBlank { instructionText })
                 }
             },
-            enabled = instructionText.isNotBlank()
+            enabled = instructionText.isNotBlank() && speakable
         ) {
             Icon(
                 Icons.Default.VolumeUp,
@@ -629,6 +776,24 @@ private fun SolutionStepsCard(steps: List<SolutionStep>) {
 }
 
 @Composable
+private fun InlineSolutionStepsSection(steps: List<SolutionStep>) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            "题解",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF174A7C)
+        )
+        steps.forEachIndexed { index, step ->
+            if (index > 0) {
+                HorizontalDivider(color = Color(0xFFE9EDF3))
+            }
+            SolutionStepRow(step)
+        }
+    }
+}
+
+@Composable
 private fun SolutionStepRow(step: SolutionStep) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -659,13 +824,13 @@ private fun SolutionStepRow(step: SolutionStep) {
                 color = InkText
             )
             Text(
-                step.content_zh,
+                readableMathText(text = step.content_zh),
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color(0xFF475467)
             )
             step.formula?.trim()?.takeIf { it.isNotBlank() }?.let {
                 Text(
-                    it,
+                    readableMathText(text = it),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = Color(0xFF15528C)
@@ -673,7 +838,7 @@ private fun SolutionStepRow(step: SolutionStep) {
             }
             step.result?.trim()?.takeIf { it.isNotBlank() }?.let {
                 Text(
-                    "结果：$it",
+                    "结果：${readableMathText(text = it)}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFFD32F2F)
                 )
@@ -761,79 +926,11 @@ private fun LearningPointCategoryPill(category: String, subject: String) {
 }
 
 @Composable
-private fun QuestionRequirementCard(
-    title: String,
-    subject: String,
-    text: String,
-    meaningZh: String,
-    onSpeak: (String) -> Unit
-) {
-    val instructionText = text.trim()
-    val displayText = instructionText.ifBlank { "未识别到题目要求" }
-    val displayMeaning = meaningZh.trim().ifBlank { "暂无中文解释" }
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = ResultCardShape,
-        colors = CardDefaults.cardColors(containerColor = CardSurface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        border = BorderStroke(1.dp, CardBorder)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        title,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF174A7C)
-                    )
-                    SubjectPill(subject)
-                }
-                IconButton(
-                    onClick = {
-                        if (instructionText.isNotBlank()) {
-                            onSpeak(instructionText)
-                        }
-                    },
-                    enabled = instructionText.isNotBlank()
-                ) {
-                    Icon(
-                        Icons.Default.VolumeUp,
-                        contentDescription = stringResource(R.string.pronunciation_voice),
-                        tint = Color(0xFF1565C0)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                displayText,
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (instructionText.isBlank()) Color(0xFF667085) else InkText,
-                fontWeight = if (instructionText.isBlank()) FontWeight.Normal else FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                displayMeaning,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFF475467)
-            )
-        }
-    }
-}
-
-@Composable
 private fun AnswerPronunciationContent(
     lines: List<DisplayAnswerLine>,
+    stepsByNumber: Map<String, List<SolutionStep>> = emptyMap(),
     vocabResolver: VocabResolver,
     displayPolicy: SubjectDisplayPolicy,
-    sentenceTranslationLookup: Map<String, String>,
     activeTip: WordTipTarget?,
     activeSentenceTip: SentenceTipTarget?,
     onTipChange: (WordTipTarget?) -> Unit,
@@ -851,10 +948,16 @@ private fun AnswerPronunciationContent(
                 number = line.number,
                 lineType = line.lineType,
                 text = line.text,
+                speakText = line.speakText,
+                displayMode = line.displayMode,
+                displayFormat = line.displayFormat,
+                latex = line.latex,
+                preserveNewlines = line.preserveNewlines,
                 segments = line.segments,
+                review = line.review,
                 vocabResolver = vocabResolver,
                 displayPolicy = displayPolicy,
-                translation = findSentenceTranslation(line.text, sentenceTranslationLookup),
+                translation = null,
                 activeTip = activeTip,
                 activeSentenceTip = activeSentenceTip,
                 onTipChange = onTipChange,
@@ -862,6 +965,10 @@ private fun AnswerPronunciationContent(
                 onSpeakLine = onSpeakLine,
                 onSpeakWord = onSpeakWord
             )
+            val matchedSteps = stepsByNumber[normalizedItemNumber(line.number)].orEmpty()
+            if (matchedSteps.isNotEmpty()) {
+                InlineSolutionStepsSection(matchedSteps)
+            }
         }
     }
 }
@@ -872,7 +979,13 @@ private fun SpeakableLineRow(
     number: String?,
     lineType: String,
     text: String,
+    speakText: String,
+    displayMode: String,
+    displayFormat: String,
+    latex: String?,
+    preserveNewlines: Boolean,
     segments: List<DisplayAnswerSegment>,
+    review: StudentAnswerReview?,
     vocabResolver: VocabResolver,
     displayPolicy: SubjectDisplayPolicy,
     translation: String?,
@@ -883,116 +996,129 @@ private fun SpeakableLineRow(
     onSpeakLine: (String) -> Unit,
     onSpeakWord: (String) -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top
-    ) {
-        if (number != null) {
-            Surface(
-                shape = TokenShape,
-                color = SoftPrimarySurface,
-                contentColor = Color(0xFF15528C),
-                border = BorderStroke(1.dp, Color(0xFFC7DCF5))
-            ) {
-                Text(
-                    text = number,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Spacer(modifier = Modifier.width(10.dp))
-        }
-
-        if (!displayPolicy.answerLineSpeak) {
-            // 理科：答案行纯展示，不朗读、不弹词义。
-            PlainAnswerLine(segments = segments, modifier = Modifier.weight(1f))
-        } else if (shouldRenderAsAtomicLine(lineType, text, segments)) {
-            AtomicAnswerLine(
-                lineId = lineId,
-                text = text,
-                segments = segments,
-                vocabResolver = vocabResolver,
-                displayPolicy = displayPolicy,
-                activeTip = activeTip,
-                onTipChange = onTipChange,
-                onSpeakWord = onSpeakWord,
-                modifier = Modifier.weight(1f)
-            )
-        } else {
-            FlowRow(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                val tokens = tokenizeDisplayTokens(segments)
-                tokens.forEachIndexed { index, token ->
-                    if (token.speakable) {
-                        SpeakableWordToken(
-                            token = token.text,
-                            role = token.role,
-                            tipTarget = buildTipTarget(
-                                id = "$lineId-$index",
-                                rawWord = token.text,
-                                vocabResolver = vocabResolver,
-                                wordTip = displayPolicy.wordTip
-                            ),
-                            activeTip = activeTip,
-                            onTipChange = onTipChange,
-                            onSpeakWord = onSpeakWord
-                        )
-                    } else {
-                        Text(
-                            text = token.text,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = answerSegmentColor(token.role)
-                        )
-                    }
-                }
-            }
-        }
-
-        val showTranslate = displayPolicy.showTranslate(translation)
-        if (displayPolicy.answerLineSpeak || showTranslate) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalAlignment = Alignment.Top
-            ) {
-                if (displayPolicy.answerLineSpeak) {
-                    IconButton(onClick = { onSpeakLine(text) }) {
-                        Icon(
-                            Icons.Default.VolumeUp,
-                            contentDescription = stringResource(R.string.pronunciation_voice),
-                            tint = Color(0xFF1565C0)
-                        )
-                    }
-                }
-                if (showTranslate) {
-                    SentenceTranslationButton(
-                        lineId = lineId,
-                        text = text,
-                        translation = translation,
-                        activeSentenceTip = activeSentenceTip,
-                        onTipChange = {
-                            onTipChange(null)
-                            onSentenceTipChange(it)
-                        }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top
+        ) {
+            if (number != null) {
+                Surface(
+                    shape = TokenShape,
+                    color = SoftPrimarySurface,
+                    contentColor = Color(0xFF15528C),
+                    border = BorderStroke(1.dp, Color(0xFFC7DCF5))
+                ) {
+                    Text(
+                        text = number,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
                     )
                 }
+                Spacer(modifier = Modifier.width(10.dp))
+            }
+
+            val blockMode = preserveNewlines ||
+                displayMode in setOf("math_block", "paragraph", "table", "plain")
+            if (blockMode || !displayPolicy.answerLineSpeak) {
+                if (displayMode == "math_block") {
+                    MathAnswerLine(
+                        text = text,
+                        displayFormat = displayFormat,
+                        latex = latex,
+                        segments = segments,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    BlockAnswerLine(segments = segments, modifier = Modifier.weight(1f))
+                }
+            } else if (shouldRenderAsAtomicLine(lineType, text, segments)) {
+                AtomicAnswerLine(
+                    lineId = lineId,
+                    text = text,
+                    segments = segments,
+                    vocabResolver = vocabResolver,
+                    displayPolicy = displayPolicy,
+                    activeTip = activeTip,
+                    onTipChange = onTipChange,
+                    onSpeakWord = onSpeakWord,
+                    modifier = Modifier.weight(1f)
+                )
+            } else {
+                FlowRow(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val tokens = tokenizeDisplayTokens(segments)
+                    tokens.forEachIndexed { index, token ->
+                        if (token.speakable) {
+                            SpeakableWordToken(
+                                token = token.text,
+                                role = token.role,
+                                tipTarget = buildTipTarget(
+                                    id = "$lineId-$index",
+                                    rawWord = token.text,
+                                    vocabResolver = vocabResolver,
+                                    wordTip = displayPolicy.wordTip
+                                ),
+                                activeTip = activeTip,
+                                onTipChange = onTipChange,
+                                onSpeakWord = onSpeakWord
+                            )
+                        } else {
+                            Text(
+                                text = token.text,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = answerSegmentColor(token.role)
+                            )
+                        }
+                    }
+                }
+            }
+
+            val showTranslate = displayPolicy.showTranslate(translation)
+            if (displayPolicy.answerLineSpeak || showTranslate) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    if (displayPolicy.answerLineSpeak) {
+                        IconButton(onClick = { onSpeakLine(speakText.ifBlank { text }) }) {
+                            Icon(
+                                Icons.Default.VolumeUp,
+                                contentDescription = stringResource(R.string.pronunciation_voice),
+                                tint = Color(0xFF1565C0)
+                            )
+                        }
+                    }
+                    if (showTranslate) {
+                        SentenceTranslationButton(
+                            lineId = lineId,
+                            text = text,
+                            translation = translation,
+                            activeSentenceTip = activeSentenceTip,
+                            onTipChange = {
+                                onTipChange(null)
+                                onSentenceTipChange(it)
+                            }
+                        )
+                    }
+                }
             }
         }
+        review?.let { StudentAnswerReviewRow(it) }
     }
 }
 
 @Composable
-private fun PlainAnswerLine(
+private fun BlockAnswerLine(
     segments: List<DisplayAnswerSegment>,
     modifier: Modifier = Modifier
 ) {
-    FlowRow(
+    Column(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         segments.forEach { segment ->
             Text(
@@ -1000,6 +1126,100 @@ private fun PlainAnswerLine(
                 style = MaterialTheme.typography.bodyLarge,
                 color = answerSegmentColor(segment.role)
             )
+        }
+    }
+}
+
+@Composable
+private fun MathAnswerLine(
+    text: String,
+    displayFormat: String,
+    latex: String?,
+    segments: List<DisplayAnswerSegment>,
+    modifier: Modifier = Modifier
+) {
+    val displayText = readableMathText(
+        text = text,
+        displayFormat = displayFormat,
+        latex = latex
+    )
+    Surface(
+        shape = ResultCardShape,
+        color = SoftNeutralSurface,
+        border = BorderStroke(1.dp, Color(0xFFE3E6EA)),
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = displayText,
+                style = MaterialTheme.typography.bodyLarge,
+                color = InkText
+            )
+            if (segments.size > 1 || segments.firstOrNull()?.text?.trim() != displayText.trim()) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    segments.forEach { segment ->
+                        Text(
+                            text = readableMathText(text = segment.text),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = answerSegmentColor(segment.role)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StudentAnswerReviewRow(review: StudentAnswerReview) {
+    val statusColor = when (review.status.lowercase(Locale.US)) {
+        "correct" -> Color(0xFF2E7D32)
+        "incorrect" -> Color(0xFFD32F2F)
+        "partially_correct" -> Color(0xFFE65100)
+        "unanswered" -> Color(0xFF667085)
+        "not_applicable" -> Color(0xFF475467)
+        else -> Color(0xFFB26A00)
+    }
+    Surface(
+        shape = TokenShape,
+        color = Color(0xFFF7F8FA),
+        border = BorderStroke(1.dp, Color(0xFFE3E6EA))
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(
+                text = reviewStatusLabel(review.status),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = statusColor
+            )
+            val student = review.student_answer?.trim().orEmpty()
+            val correct = review.correct_answer?.trim().orEmpty()
+            if (student.isNotBlank() || correct.isNotBlank()) {
+                Text(
+                    text = listOfNotNull(
+                        student.takeIf { it.isNotBlank() }?.let { "你写的是：$it" },
+                        correct.takeIf { it.isNotBlank() }?.let { "正确答案：$it" }
+                    ).joinToString("  "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF475467)
+                )
+            }
+            if (review.feedback_zh.isNotBlank()) {
+                Text(
+                    text = review.feedback_zh,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = InkText
+                )
+            }
         }
     }
 }
@@ -1316,22 +1536,32 @@ private fun Modifier.longPressToReadModifier(
 
 private fun buildDisplayQuestionBlocks(
     blocks: List<QuestionBlock>,
-    answerLines: List<ResultAnswerLine>
+    answerItems: List<ResultAnswerItem>,
+    reviews: List<StudentAnswerReview>,
+    solutionSteps: List<SolutionStep>
 ): List<DisplayQuestionBlock> {
-    val displayLines = buildDisplayAnswerLines(answerLines)
+    val displayLines = buildDisplayAnswerLines(answerItems, reviews)
     val linesByBlock = displayLines.groupBy { it.blockId }
-    val knownBlockIds = blocks.mapNotNull { it.block_id.trim().takeIf { id -> id.isNotBlank() } }.toSet()
-    val result = blocks.mapIndexedNotNull { index, block ->
+    val stepsByBlock = solutionSteps
+        .sortedWith(compareBy<SolutionStep>(
+            { it.block_id },
+            { it.number.toIntOrNull() ?: Int.MAX_VALUE },
+            { it.number }
+        ))
+        .groupBy { it.block_id.trim() }
+    val sortedBlocks = blocks.sortedWith(compareBy<QuestionBlock> { it.order.takeIf { order -> order > 0 } ?: Int.MAX_VALUE })
+    val knownBlockIds = sortedBlocks.mapNotNull { it.block_id.trim().takeIf { id -> id.isNotBlank() } }.toSet()
+    val result = sortedBlocks.mapIndexedNotNull { index, block ->
         val blockId = block.block_id.trim()
         if (blockId.isBlank()) return@mapIndexedNotNull null
         val title = block.title.trim().ifBlank { "第${index + 1}题" }
         DisplayQuestionBlock(
             blockId = blockId,
             title = title,
-            instructionText = block.question_instruction.text.trim(),
-            instructionMeaning = block.question_instruction.meaning_zh.trim(),
+            contentItems = block.content_items.sortedWith(compareBy<ResultContentItem> { it.order.takeIf { order -> order > 0 } ?: Int.MAX_VALUE }),
             questionMeaning = block.question_meaning_zh.trim(),
-            lines = linesByBlock[blockId].orEmpty()
+            lines = linesByBlock[blockId].orEmpty(),
+            solutionSteps = stepsByBlock[blockId].orEmpty()
         )
     }.toMutableList()
 
@@ -1343,21 +1573,37 @@ private fun buildDisplayQuestionBlocks(
             DisplayQuestionBlock(
                 blockId = "__orphan__",
                 title = "其他",
-                instructionText = "",
-                instructionMeaning = "",
+                contentItems = emptyList(),
                 questionMeaning = "",
-                lines = orphanLines
+                lines = orphanLines,
+                solutionSteps = emptyList()
             )
         )
     }
     return result
 }
 
-private fun buildDisplayAnswerLines(answerLines: List<ResultAnswerLine>): List<DisplayAnswerLine> {
-    return answerLines.mapIndexedNotNull { index, line ->
+private fun buildDisplayAnswerLines(
+    answerItems: List<ResultAnswerItem>,
+    reviews: List<StudentAnswerReview>
+): List<DisplayAnswerLine> {
+    val reviewsByAnswer = reviews
+        .filter { !it.answer_id.isNullOrBlank() }
+        .associateBy { it.answer_id.orEmpty() }
+    val reviewsByBlockNumber = reviews
+        .filter { it.answer_id.isNullOrBlank() && !it.number.isNullOrBlank() }
+        .associateBy { "${it.block_id.trim()}::${it.number?.trim().orEmpty()}" }
+    return answerItems
+        .sortedWith(
+            compareBy<ResultAnswerItem>(
+                { it.block_id },
+                { it.order.takeIf { order -> order > 0 } ?: Int.MAX_VALUE }
+            )
+        )
+        .mapIndexedNotNull { index, line ->
         val plainText = line.plain_text.trim()
         val blockId = line.block_id.trim()
-        val rawSegments = line.segments
+        val rawSegments = line.display.runs
             .mapNotNull { segment ->
                 val text = segment.text
                 if (text.isBlank()) {
@@ -1380,11 +1626,79 @@ private fun buildDisplayAnswerLines(answerLines: List<ResultAnswerLine>): List<D
             id = "answer-$index",
             blockId = blockId,
             number = line.number?.trim()?.takeIf { it.isNotBlank() },
-            lineType = line.line_type.trim().lowercase(Locale.US),
+            lineType = line.answer_type.trim().lowercase(Locale.US),
             text = text,
-            segments = segments
+            speakText = line.speak_text?.trim()?.takeIf { it.isNotBlank() } ?: text,
+            displayMode = line.display.mode.trim().lowercase(Locale.US),
+            displayFormat = line.display.format.trim().lowercase(Locale.US),
+            latex = line.display.latex?.trim()?.takeIf { it.isNotBlank() },
+            preserveNewlines = line.display.preserve_newlines,
+            segments = segments,
+            review = reviewsByAnswer[line.answer_id]
+                ?: reviewsByBlockNumber["$blockId::${line.number?.trim().orEmpty()}"]
         )
     }
+}
+
+private fun buildInlineStepsByAnswerNumber(
+    lines: List<DisplayAnswerLine>,
+    steps: List<SolutionStep>
+): Map<String, List<SolutionStep>> {
+    if (lines.size <= 1 || steps.isEmpty()) return emptyMap()
+    val answerNumbers = lines
+        .mapNotNull { normalizedItemNumber(it.number).takeIf { number -> number.isNotBlank() } }
+        .toSet()
+    if (answerNumbers.isEmpty()) return emptyMap()
+    return steps
+        .mapNotNull { step ->
+            val matchedNumber = matchingAnswerNumber(
+                stepNumber = step.number,
+                stepTitle = step.title,
+                answerNumbers = answerNumbers
+            ) ?: return@mapNotNull null
+            matchedNumber to step
+        }
+        .groupBy(keySelector = { it.first }, valueTransform = { it.second })
+}
+
+private fun normalizedItemNumber(number: String?): String {
+    val trimmed = number
+        ?.trim()
+        ?.trimEnd('.', '、', ')', '）', ':', '：')
+        ?.lowercase(Locale.US)
+        .orEmpty()
+    if (trimmed.isBlank()) return ""
+    val leadingNumber = Regex("""^(?:第)?\s*([a-z0-9一二三四五六七八九十]+(?:[.\-、][a-z0-9一二三四五六七八九十]+)?)""")
+        .find(trimmed)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.trimEnd('.', '、', ')', '）', ':', '：')
+    return leadingNumber?.takeIf { it.isNotBlank() } ?: trimmed
+}
+
+private fun matchingAnswerNumber(
+    stepNumber: String,
+    stepTitle: String,
+    answerNumbers: Set<String>
+): String? {
+    val normalizedStepNumber = normalizedItemNumber(stepNumber)
+    findMatchingAnswerNumber(normalizedStepNumber, answerNumbers)?.let { return it }
+    return findMatchingAnswerNumber(normalizedItemNumber(stepTitle), answerNumbers)
+}
+
+private fun findMatchingAnswerNumber(
+    stepNumber: String,
+    answerNumbers: Set<String>
+): String? {
+    if (stepNumber.isBlank()) return null
+    return answerNumbers
+        .sortedByDescending { it.length }
+        .firstOrNull { answerNumber ->
+            stepNumber == answerNumber ||
+                stepNumber.startsWith("$answerNumber.") ||
+                stepNumber.startsWith("$answerNumber-") ||
+                stepNumber.startsWith("$answerNumber、")
+        }
 }
 
 private fun shouldRenderAsAtomicLine(
@@ -1429,6 +1743,94 @@ private fun tokenizeSpeakTokens(text: String, role: String = "answer"): List<Spe
     }.toList()
 }
 
+private fun readableMathText(
+    text: String,
+    displayFormat: String = "",
+    latex: String? = null
+): String {
+    val source = when {
+        displayFormat.lowercase(Locale.US) == "latex" && !latex.isNullOrBlank() -> latex
+        text.contains("\\") || text.contains("{") || text.contains("}") || text.contains("$") -> text
+        else -> return text
+    }
+    return latexToReadableMath(source)
+}
+
+private fun latexToReadableMath(raw: String): String {
+    var text = raw.trim()
+        .removeSurrounding("$")
+        .removeSurrounding("\\(", "\\)")
+        .removeSurrounding("\\[", "\\]")
+        .replace("$", "")
+        .replace("\\left", "")
+        .replace("\\right", "")
+        .replace("\\Rightarrow", " ⇒ ")
+        .replace("\\Longrightarrow", " ⇒ ")
+        .replace("\\implies", " ⇒ ")
+        .replace("\\rightarrow", " → ")
+        .replace("\\longrightarrow", " → ")
+        .replace("\\to", " → ")
+        .replace("\\because", "∵")
+        .replace("\\therefore", "∴")
+        .replace("\\textdegree", "°")
+        .replace(Regex("""\^\s*\\circ"""), "°")
+        .replace(Regex("""\^\s*°"""), "°")
+        .replace(Regex("""\\text\s*\{([^{}]*)\}""")) { match ->
+            match.groupValues[1]
+        }
+
+    val simpleTransforms = listOf(
+        Regex("""\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}""") to { match: MatchResult ->
+            "${match.groupValues[1]}/${match.groupValues[2]}"
+        },
+        Regex("""\\sqrt\s*\{([^{}]+)\}""") to { match: MatchResult ->
+            "√(${match.groupValues[1]})"
+        },
+        Regex("""\^\s*\{([^{}]+)\}""") to { match: MatchResult ->
+            "^${match.groupValues[1]}"
+        },
+        Regex("""_\s*\{([^{}]+)\}""") to { match: MatchResult ->
+            "_${match.groupValues[1]}"
+        }
+    )
+
+    var changed: Boolean
+    do {
+        changed = false
+        for ((pattern, transform) in simpleTransforms) {
+            val replaced = pattern.replace(text, transform)
+            if (replaced != text) {
+                changed = true
+                text = replaced
+            }
+        }
+    } while (changed)
+
+    return text
+        .replace("\\times", "×")
+        .replace("\\cdot", "·")
+        .replace("\\div", "÷")
+        .replace("\\pm", "±")
+        .replace("\\leq", "≤")
+        .replace("\\geq", "≥")
+        .replace("\\neq", "≠")
+        .replace("\\approx", "≈")
+        .replace("\\angle", "∠")
+        .replace("\\degree", "°")
+        .replace("\\circ", "°")
+        .replace("\\pi", "π")
+        .replace("\\Pi", "Π")
+        .replace("\\%", "%")
+        .replace(Regex("""([⇒→])\s*([A-Za-z])"""), "$1 $2")
+        .replace(Regex("""([A-Za-z0-9)\]°π])\s*([=<>≤≥≠≈+\-×÷])\s*"""), "$1 $2 ")
+        .replace(Regex("""\s*([=<>≤≥≠≈+\-×÷])\s*([A-Za-z0-9(π√])"""), " $1 $2")
+        .replace(Regex("""\\[a-zA-Z]+"""), "")
+        .replace("{", "")
+        .replace("}", "")
+        .replace(Regex("""\s+"""), " ")
+        .trim()
+}
+
 private fun answerSegmentColor(role: String): Color {
     return when (role.lowercase(Locale.US)) {
         "given" -> InkText
@@ -1450,18 +1852,58 @@ private fun learningPointCategoryLabel(category: String, subject: String): Strin
     }
 }
 
+private fun shouldShowContentItem(item: ResultContentItem, displayPolicy: SubjectDisplayPolicy): Boolean {
+    val type = item.type.lowercase(Locale.US)
+    val text = item.text.trim()
+    if (text.isBlank()) return false
+    return when (displayPolicy.subject) {
+        "english" -> type in setOf(
+            "instruction",
+            "example",
+            "context",
+            "material",
+            "dialogue",
+            "word_bank",
+            "option",
+            "image_text"
+        )
+        "liberal_arts" -> type in setOf("material", "dialogue", "image_text")
+        else -> false
+    }
+}
+
+private fun contentItemLabel(type: String): String {
+    return when (type.lowercase(Locale.US)) {
+        "instruction" -> "题目要求"
+        "example" -> "例句"
+        "context" -> "题面"
+        "material" -> "材料"
+        "dialogue" -> "对话"
+        "word_bank" -> "词库"
+        "option" -> "选项"
+        "image_text" -> "图中文字"
+        else -> "题面"
+    }
+}
+
+private fun reviewStatusLabel(status: String): String {
+    return when (status.lowercase(Locale.US)) {
+        "correct" -> "正确"
+        "incorrect" -> "需修改"
+        "partially_correct" -> "部分正确"
+        "unanswered" -> "未作答"
+        "not_applicable" -> "参考判断"
+        else -> "需确认"
+    }
+}
+
 private fun normalizeWord(raw: String): String {
     val lower = raw.trim().lowercase(Locale.US)
     return stripWordPattern.replace(lower, "")
 }
 
-private fun normalizeSentence(raw: String): String {
-    return whitespacePattern.replace(raw.trim().lowercase(Locale.US), " ")
-}
-
 private fun buildVocabularyLookup(
-    items: List<LearningPoint>,
-    units: List<ReadUnit>
+    items: List<LearningPoint>
 ): Map<String, LearningPoint> {
     val lookup = linkedMapOf<String, LearningPoint>()
     items.forEach { item ->
@@ -1470,50 +1912,7 @@ private fun buildVocabularyLookup(
             lookup[key] = item
         }
     }
-    units.filter { it.unit_type == "word" }.forEach { unit ->
-        val meaning = unit.meaning_zh?.trim()
-        if (meaning.isNullOrBlank()) return@forEach
-        val key = normalizeWord(unit.text)
-        if (key.isNotEmpty() && lookup[key] == null) {
-            lookup[key] = LearningPoint(
-                term = unit.text,
-                explanation_zh = meaning,
-                category = "word"
-            )
-        }
-    }
     return lookup
-}
-
-private fun buildSentenceTranslationLookup(units: List<ReadUnit>): Map<String, String> {
-    val lookup = linkedMapOf<String, String>()
-    units.filter { it.unit_type == "text" }.forEach { unit ->
-        val translation = unit.meaning_zh?.trim()
-        if (translation.isNullOrBlank()) return@forEach
-        val key = normalizeSentence(unit.text)
-        if (key.isNotEmpty()) {
-            lookup[key] = translation
-        }
-    }
-    return lookup
-}
-
-private fun findSentenceTranslation(
-    text: String,
-    sentenceTranslationLookup: Map<String, String>
-): String? {
-    val key = normalizeSentence(text)
-    if (key.isNotEmpty()) {
-        sentenceTranslationLookup[key]?.let { return it }
-    }
-    val withoutNumber = fallbackAnswerLinePattern.matchEntire(text.trim())
-        ?.groupValues
-        ?.getOrNull(2)
-        ?.trim()
-    if (!withoutNumber.isNullOrBlank()) {
-        sentenceTranslationLookup[normalizeSentence(withoutNumber)]?.let { return it }
-    }
-    return null
 }
 
 private class VocabResolver(
