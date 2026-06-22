@@ -15,6 +15,7 @@ import com.homework.assistant.data.model.StudentsResponse
 import com.homework.assistant.data.model.TaskBlock
 import com.homework.assistant.data.model.SubmitResponse
 import com.homework.assistant.data.model.TaskStatusResponse
+import com.homework.assistant.data.model.UpdateStudentRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -119,6 +120,40 @@ class HomeworkApi(
             body = CreateStudentRequest(name = name, grade = grade.ifBlank { null }),
             responseClass = Student::class.java
         )
+
+    suspend fun updateStudent(
+        token: String,
+        studentId: String,
+        name: String,
+        grade: String
+    ): Result<Student> =
+        patchJson(
+            path = "/v1/students/${URLEncoder.encode(studentId, "UTF-8")}",
+            token = token,
+            body = UpdateStudentRequest(name = name, grade = grade.ifBlank { null }),
+            responseClass = Student::class.java
+        )
+
+    suspend fun deleteStudent(token: String, studentId: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = "$baseUrl/v1/students/${URLEncoder.encode(studentId, "UTF-8")}"
+                val request = Request.Builder()
+                    .url(url)
+                    .addAuth(token)
+                    .delete()
+                    .build()
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        HttpStatusException(response.code, "服务器返回 ${response.code}\n$url")
+                    )
+                }
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
 
     suspend fun listCollections(
         token: String,
@@ -355,6 +390,34 @@ class HomeworkApi(
                     .url(url)
                     .addAuth(token)
                     .post(gson.toJson(body).toRequestBody(jsonMediaType))
+                    .build()
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        HttpStatusException(response.code, "服务器返回 ${response.code}\n$url")
+                    )
+                }
+                val responseBody = response.body?.string()
+                    ?: return@withContext Result.failure(IOException("响应为空"))
+                Result.success(gson.fromJson(responseBody, responseClass))
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    private suspend fun <T : Any> patchJson(
+        path: String,
+        body: Any,
+        responseClass: Class<T>,
+        token: String = ""
+    ): Result<T> =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = "$baseUrl$path"
+                val request = Request.Builder()
+                    .url(url)
+                    .addAuth(token)
+                    .patch(gson.toJson(body).toRequestBody(jsonMediaType))
                     .build()
                 val response = client.newCall(request).execute()
                 if (!response.isSuccessful) {

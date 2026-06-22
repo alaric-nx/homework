@@ -39,6 +39,8 @@ GET  /v1/tenants/me
 
 POST /v1/students
 GET  /v1/students
+PATCH /v1/students/{student_id}
+DELETE /v1/students/{student_id}
 
 POST /v1/tasks
 GET  /v1/tasks/{task_id}

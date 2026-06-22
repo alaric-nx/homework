@@ -19,7 +19,7 @@ This branch focuses on:
 - username/password registration and login
 - bearer-token session storage, default token TTL 10 years
 - family tenant creation on registration
-- student creation and listing
+- student creation, listing, update, and soft delete
 - notebook task placeholder persistence
 - task block persistence
 - wrong / watched question collections
@@ -36,6 +36,8 @@ GET  /v1/tenants/me
 
 POST /v1/students
 GET  /v1/students
+PATCH /v1/students/{id}
+DELETE /v1/students/{id}
 
 POST /v1/notebook/tasks
 POST /v1/task-blocks

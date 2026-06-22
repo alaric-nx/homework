@@ -343,6 +343,69 @@ class NotebookStore:
             ).fetchall()
             return [_row_dict(row) for row in rows]
 
+    def update_student(
+        self,
+        *,
+        tenant_id: str,
+        student_id: str,
+        name: str,
+        nickname: str | None = None,
+        grade: str | None = None,
+        school: str | None = None,
+    ) -> dict[str, Any]:
+        name = name.strip()
+        if not name:
+            raise AppError("INVALID_REQUEST", "name is required.")
+        now = _now()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id FROM students
+                WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL
+                """,
+                (student_id, tenant_id),
+            ).fetchone()
+            if row is None:
+                raise AppError("NOT_FOUND", "student not found.")
+            conn.execute(
+                """
+                UPDATE students
+                SET name = ?, nickname = ?, grade = ?, school = ?, updated_at = ?
+                WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL
+                """,
+                (
+                    name,
+                    _clean(nickname),
+                    _clean(grade),
+                    _clean(school),
+                    now,
+                    student_id,
+                    tenant_id,
+                ),
+            )
+            return self._get_student(student_id, conn=conn)
+
+    def delete_student(self, *, tenant_id: str, student_id: str) -> None:
+        now = _now()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id FROM students
+                WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL
+                """,
+                (student_id, tenant_id),
+            ).fetchone()
+            if row is None:
+                raise AppError("NOT_FOUND", "student not found.")
+            conn.execute(
+                """
+                UPDATE students
+                SET status = 'deleted', deleted_at = ?, updated_at = ?
+                WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL
+                """,
+                (now, now, student_id, tenant_id),
+            )
+
     def create_parse_task_stub(
         self,
         *,
@@ -560,6 +623,7 @@ class NotebookStore:
                 """
                 SELECT
                     qc.*,
+                    pt.subject,
                     tb.title,
                     tb.question_text,
                     tb.answer_text,
@@ -570,6 +634,7 @@ class NotebookStore:
                     tb.source_block_id
                 FROM question_collections qc
                 JOIN task_blocks tb ON tb.id = qc.task_block_id
+                LEFT JOIN parse_tasks pt ON pt.id = tb.task_id
                 WHERE qc.tenant_id = ?
                   AND qc.student_id = ?
                   AND qc.collection_type = ?
@@ -682,7 +747,15 @@ class NotebookStore:
         return _row_dict(row)
 
     def _get_task_block(self, task_block_id: str, *, conn: sqlite3.Connection) -> dict[str, Any]:
-        row = conn.execute("SELECT * FROM task_blocks WHERE id = ? AND deleted_at IS NULL", (task_block_id,)).fetchone()
+        row = conn.execute(
+            """
+            SELECT tb.*, pt.subject
+            FROM task_blocks tb
+            LEFT JOIN parse_tasks pt ON pt.id = tb.task_id
+            WHERE tb.id = ? AND tb.deleted_at IS NULL
+            """,
+            (task_block_id,),
+        ).fetchone()
         if row is None:
             raise AppError("NOT_FOUND", "task block not found.")
         data = _row_dict(row)
@@ -783,6 +856,7 @@ def _collection_row(row: sqlite3.Row) -> dict[str, Any]:
         "id": data.pop("task_block_id"),
         "task_id": data.pop("task_id"),
         "source_block_id": data.pop("source_block_id"),
+        "subject": data.pop("subject", None),
         "title": data.pop("title"),
         "question_text": data.pop("question_text"),
         "answer_text": data.pop("answer_text"),

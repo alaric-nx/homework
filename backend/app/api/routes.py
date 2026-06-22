@@ -22,6 +22,7 @@ from app.core.models import (
     SetCollectionRequest,
     TaskStatus,
     TaskStatusResponse,
+    UpdateStudentRequest,
 )
 from app.services.notebook_store import CollectionType, NotebookStore
 from app.services.parse_pipeline import ParsePipeline
@@ -97,6 +98,33 @@ async def list_students(
     notebook_store: Annotated[NotebookStore, Depends(get_notebook_store)],
 ) -> dict:
     return {"items": notebook_store.list_students(tenant_id=auth["tenant_id"])}
+
+
+@router.patch("/v1/students/{student_id}")
+async def update_student(
+    student_id: str,
+    payload: UpdateStudentRequest,
+    auth: Annotated[dict, Depends(_require_auth)],
+    notebook_store: Annotated[NotebookStore, Depends(get_notebook_store)],
+) -> dict:
+    return notebook_store.update_student(
+        tenant_id=auth["tenant_id"],
+        student_id=student_id,
+        name=payload.name,
+        nickname=payload.nickname,
+        grade=payload.grade,
+        school=payload.school,
+    )
+
+
+@router.delete("/v1/students/{student_id}")
+async def delete_student(
+    student_id: str,
+    auth: Annotated[dict, Depends(_require_auth)],
+    notebook_store: Annotated[NotebookStore, Depends(get_notebook_store)],
+) -> dict[str, str]:
+    notebook_store.delete_student(tenant_id=auth["tenant_id"], student_id=student_id)
+    return {"status": "ok"}
 
 
 @router.post("/v1/notebook/tasks")

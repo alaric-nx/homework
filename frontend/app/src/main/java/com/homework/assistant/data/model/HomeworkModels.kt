@@ -197,6 +197,13 @@ data class CreateStudentRequest(
     val school: String? = null
 )
 
+data class UpdateStudentRequest(
+    val name: String,
+    val nickname: String? = null,
+    val grade: String? = null,
+    val school: String? = null
+)
+
 data class CreateNotebookTaskRequest(
     val task_id: String? = null,
     val student_id: String,
@@ -235,6 +242,8 @@ data class QuestionCollection(
     val status: String = "",
     val reason: String = "",
     val note: String? = null,
+    val created_at: Long = 0,
+    val updated_at: Long = 0,
     val task_block: TaskBlock = TaskBlock()
 )
 
@@ -242,6 +251,7 @@ data class TaskBlock(
     val id: String = "",
     val task_id: String = "",
     val source_block_id: String = "",
+    val subject: String? = null,
     val title: String = "",
     val question_text: String? = null,
     val answer_text: String? = null,

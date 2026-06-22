@@ -53,6 +53,15 @@ def test_register_login_students_and_collections(tmp_path) -> None:
         assert students_resp.status_code == 200
         assert [item["id"] for item in students_resp.json()["items"]] == [student_id]
 
+        update_student_resp = client.patch(
+            f"/v1/students/{student_id}",
+            headers=headers,
+            json={"name": "小明明", "grade": "六年级"},
+        )
+        assert update_student_resp.status_code == 200
+        assert update_student_resp.json()["name"] == "小明明"
+        assert update_student_resp.json()["grade"] == "六年级"
+
         task_resp = client.post(
             "/v1/notebook/tasks",
             headers=headers,
@@ -127,6 +136,13 @@ def test_register_login_students_and_collections(tmp_path) -> None:
         )
         assert wrong_list_after_delete.status_code == 200
         assert wrong_list_after_delete.json()["items"] == []
+
+        delete_student_resp = client.delete(f"/v1/students/{student_id}", headers=headers)
+        assert delete_student_resp.status_code == 200
+
+        students_after_delete = client.get("/v1/students", headers=headers)
+        assert students_after_delete.status_code == 200
+        assert students_after_delete.json()["items"] == []
     finally:
         app.dependency_overrides.clear()
 

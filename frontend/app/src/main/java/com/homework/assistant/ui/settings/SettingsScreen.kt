@@ -64,6 +64,8 @@ fun SettingsScreen(onLogout: () -> Unit, onStudentChanged: () -> Unit) {
     var newStudentGrade by remember { mutableStateOf("") }
     var newModel by remember { mutableStateOf("") }
     var renameTarget by remember { mutableStateOf<String?>(null) }
+    var editingStudent by remember { mutableStateOf<Student?>(null) }
+    var deletingStudent by remember { mutableStateOf<Student?>(null) }
 
     fun toast(msg: String) {
         scope.launch { snackbarHostState.showSnackbar(msg) }
@@ -83,8 +85,13 @@ fun SettingsScreen(onLogout: () -> Unit, onStudentChanged: () -> Unit) {
                 .onSuccess { response ->
                     students.clear()
                     students.addAll(response.items)
-                    selectedStudentId = settingsStore.getCurrentStudentId()
-                    if (selectedStudentId.isBlank() && students.isNotEmpty()) {
+                    val currentId = settingsStore.getCurrentStudentId()
+                    selectedStudentId = currentId
+                    if (students.isEmpty()) {
+                        settingsStore.clearCurrentStudent()
+                        selectedStudentId = ""
+                        onStudentChanged()
+                    } else if (currentId.isBlank() || students.none { it.id == currentId }) {
                         val first = students.first()
                         settingsStore.saveCurrentStudent(first.id, first.name, first.grade)
                         selectedStudentId = first.id
@@ -133,6 +140,8 @@ fun SettingsScreen(onLogout: () -> Unit, onStudentChanged: () -> Unit) {
                         onStudentChanged()
                         toast("已切换到 ${student.name}")
                     },
+                    onEdit = { student -> editingStudent = student },
+                    onDelete = { student -> deletingStudent = student },
                     onAdd = {
                         val name = newStudentName.trim()
                         if (name.isBlank()) {
@@ -222,6 +231,86 @@ fun SettingsScreen(onLogout: () -> Unit, onStudentChanged: () -> Unit) {
             }
         )
     }
+
+    editingStudent?.let { student ->
+        var editName by remember(student.id) { mutableStateOf(student.name) }
+        var editGrade by remember(student.id) { mutableStateOf(student.grade.orEmpty()) }
+        AlertDialog(
+            onDismissRequest = { editingStudent = null },
+            title = { Text("编辑孩子") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = editName,
+                        onValueChange = { editName = it },
+                        label = { Text("孩子姓名") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editGrade,
+                        onValueChange = { editGrade = it },
+                        label = { Text("年级") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val name = editName.trim()
+                    if (name.isBlank()) {
+                        toast("请输入孩子姓名")
+                        return@TextButton
+                    }
+                    scope.launch {
+                        api.updateStudent(settingsStore.getAuthToken(), student.id, name, editGrade.trim())
+                            .onSuccess { updated ->
+                                if (selectedStudentId == updated.id) {
+                                    settingsStore.saveCurrentStudent(updated.id, updated.name, updated.grade)
+                                    onStudentChanged()
+                                }
+                                editingStudent = null
+                                reloadStudents()
+                                toast("已保存")
+                            }
+                            .onFailure { toast(it.message ?: "保存失败") }
+                    }
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingStudent = null }) { Text("取消") }
+            }
+        )
+    }
+
+    deletingStudent?.let { student ->
+        AlertDialog(
+            onDismissRequest = { deletingStudent = null },
+            title = { Text("删除孩子") },
+            text = { Text("删除后，这个孩子不会再出现在设置页和题集筛选中。已有数据仍保留在服务器。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        api.deleteStudent(settingsStore.getAuthToken(), student.id)
+                            .onSuccess {
+                                if (selectedStudentId == student.id) {
+                                    settingsStore.clearCurrentStudent()
+                                    selectedStudentId = ""
+                                }
+                                deletingStudent = null
+                                reloadStudents()
+                                toast("已删除")
+                            }
+                            .onFailure { toast(it.message ?: "删除失败") }
+                    }
+                }) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingStudent = null }) { Text("取消") }
+            }
+        )
+    }
 }
 
 @Composable
@@ -249,6 +338,8 @@ private fun StudentSection(
     onNameChange: (String) -> Unit,
     onGradeChange: (String) -> Unit,
     onSelect: (Student) -> Unit,
+    onEdit: (Student) -> Unit,
+    onDelete: (Student) -> Unit,
     onAdd: () -> Unit
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -257,13 +348,31 @@ private fun StudentSection(
             if (students.isEmpty()) {
                 Text("还没有孩子，请先添加。", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     students.forEach { student ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                         FilterChip(
                             selected = student.id == selectedStudentId,
                             onClick = { onSelect(student) },
-                            label = { Text(student.name) }
+                                label = {
+                                    Text(
+                                        listOfNotNull(student.name, student.grade?.takeIf { it.isNotBlank() })
+                                            .joinToString(" · ")
+                                    )
+                                },
+                                modifier = Modifier.weight(1f)
                         )
+                            IconButton(onClick = { onEdit(student) }) {
+                                Icon(Icons.Default.Edit, contentDescription = "编辑 ${student.name}")
+                            }
+                            IconButton(onClick = { onDelete(student) }) {
+                                Icon(Icons.Default.Delete, contentDescription = "删除 ${student.name}")
+                            }
+                        }
                     }
                 }
             }
@@ -352,4 +461,3 @@ private fun ModelRow(
         }
     }
 }
-

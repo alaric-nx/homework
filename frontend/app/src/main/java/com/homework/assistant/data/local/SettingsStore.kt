@@ -145,6 +145,14 @@ class SettingsStore(context: Context) {
             .apply()
     }
 
+    fun clearCurrentStudent() {
+        prefs.edit()
+            .remove(KEY_CURRENT_STUDENT_ID)
+            .remove(KEY_CURRENT_STUDENT_NAME)
+            .remove(KEY_CURRENT_STUDENT_GRADE)
+            .apply()
+    }
+
     fun getCurrentStudentId(): String = prefs.getString(KEY_CURRENT_STUDENT_ID, "") ?: ""
 
     fun getCurrentStudentName(): String = prefs.getString(KEY_CURRENT_STUDENT_NAME, "") ?: ""

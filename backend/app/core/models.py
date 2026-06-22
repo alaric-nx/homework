@@ -241,6 +241,14 @@ class CreateStudentRequest(BaseModel):
     school: str | None = None
 
 
+class UpdateStudentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1)
+    nickname: str | None = None
+    grade: str | None = None
+    school: str | None = None
+
+
 class CreateNotebookTaskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     task_id: str | None = None
