@@ -15,6 +15,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import android.widget.Toast
+import com.homework.assistant.data.local.SettingsStore
 import java.util.Locale
 
 /**
@@ -23,7 +24,7 @@ import java.util.Locale
  */
 class TtsManager(private val appContext: Context) {
 
-    private val speechRate = 0.78f
+    private val settingsStore = SettingsStore(appContext)
     private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var tts: TextToSpeech? = null
     private var audioFocusRequest: AudioFocusRequest? = null
@@ -227,7 +228,7 @@ class TtsManager(private val appContext: Context) {
             Log.d("TtsManager", "tts current engine=${engine.defaultEngine}")
         } catch (_: Exception) {}
 
-        engine.setSpeechRate(speechRate)
+        engine.setSpeechRate(settingsStore.getSpeechRate())
         engine.setPitch(1.0f)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             engine.setAudioAttributes(

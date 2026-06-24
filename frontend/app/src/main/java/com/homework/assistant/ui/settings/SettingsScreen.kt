@@ -2,6 +2,7 @@
 
 package com.homework.assistant.ui.settings
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,24 +10,27 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -40,6 +44,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -47,6 +52,12 @@ import com.homework.assistant.data.local.SettingsStore
 import com.homework.assistant.data.model.Student
 import com.homework.assistant.data.remote.HomeworkApi
 import kotlinx.coroutines.launch
+
+private val SettingsBackground = Color(0xFFF7F8FA)
+private val SettingsCardBorder = Color(0xFFE3E8EF)
+private val SettingsText = Color(0xFF172033)
+private val SettingsMuted = Color(0xFF667085)
+private val SettingsShape = RoundedCornerShape(8.dp)
 
 @Composable
 fun SettingsScreen(onLogout: () -> Unit, onStudentChanged: () -> Unit) {
@@ -59,6 +70,7 @@ fun SettingsScreen(onLogout: () -> Unit, onStudentChanged: () -> Unit) {
     val students = remember { mutableStateListOf<Student>() }
     val models = remember { mutableStateListOf<String>() }
     var selectedModel by remember { mutableStateOf("") }
+    var speechRate by remember { mutableStateOf(settingsStore.getSpeechRate()) }
     var selectedStudentId by remember { mutableStateOf(settingsStore.getCurrentStudentId()) }
     var newStudentName by remember { mutableStateOf("") }
     var newStudentGrade by remember { mutableStateOf("") }
@@ -109,7 +121,8 @@ fun SettingsScreen(onLogout: () -> Unit, onStudentChanged: () -> Unit) {
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("设置") }) },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        containerColor = SettingsBackground
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
@@ -194,6 +207,15 @@ fun SettingsScreen(onLogout: () -> Unit, onStudentChanged: () -> Unit) {
                         } else {
                             toast("至少保留一个模型")
                         }
+                    }
+                )
+            }
+            item {
+                SpeechRateSection(
+                    speechRate = speechRate,
+                    onChange = { value ->
+                        speechRate = value
+                        settingsStore.saveSpeechRate(value)
                     }
                 )
             }
@@ -315,16 +337,22 @@ fun SettingsScreen(onLogout: () -> Unit, onStudentChanged: () -> Unit) {
 
 @Composable
 private fun AccountCard(userName: String, tenantName: String, onLogout: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = SettingsShape,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, SettingsCardBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("账号信息", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(userName.ifBlank { "未命名账号" })
+            Text("账号", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = SettingsText)
+            Text(userName.ifBlank { "未命名账号" }, color = SettingsText)
             Text(
                 tenantName.ifBlank { "家庭" },
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = SettingsMuted
             )
-            TextButton(onClick = onLogout) { Text("退出登录") }
+            TextButton(onClick = onLogout) { Text("退出账号") }
         }
     }
 }
@@ -342,11 +370,17 @@ private fun StudentSection(
     onDelete: (Student) -> Unit,
     onAdd: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = SettingsShape,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, SettingsCardBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("当前孩子", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("孩子", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = SettingsText)
             if (students.isEmpty()) {
-                Text("还没有孩子，请先添加。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("添加孩子后，任务和题集会按孩子区分。", color = SettingsMuted)
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     students.forEach { student ->
@@ -355,9 +389,9 @@ private fun StudentSection(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                        FilterChip(
-                            selected = student.id == selectedStudentId,
-                            onClick = { onSelect(student) },
+                            FilterChip(
+                                selected = student.id == selectedStudentId,
+                                onClick = { onSelect(student) },
                                 label = {
                                     Text(
                                         listOfNotNull(student.name, student.grade?.takeIf { it.isNotBlank() })
@@ -365,7 +399,7 @@ private fun StudentSection(
                                     )
                                 },
                                 modifier = Modifier.weight(1f)
-                        )
+                            )
                             IconButton(onClick = { onEdit(student) }) {
                                 Icon(Icons.Default.Edit, contentDescription = "编辑 ${student.name}")
                             }
@@ -382,6 +416,7 @@ private fun StudentSection(
                     onValueChange = onNameChange,
                     label = { Text("孩子姓名") },
                     singleLine = true,
+                    shape = SettingsShape,
                     modifier = Modifier.weight(1f)
                 )
                 OutlinedTextField(
@@ -389,10 +424,11 @@ private fun StudentSection(
                     onValueChange = onGradeChange,
                     label = { Text("年级") },
                     singleLine = true,
+                    shape = SettingsShape,
                     modifier = Modifier.weight(1f)
                 )
             }
-            Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) { Text("添加孩子") }
+            Button(onClick = onAdd, modifier = Modifier.fillMaxWidth(), shape = SettingsShape) { Text("添加孩子") }
         }
     }
 }
@@ -408,18 +444,25 @@ private fun ModelSection(
     onEdit: (String) -> Unit,
     onDelete: (String) -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = SettingsShape,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, SettingsCardBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("模型设置", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("解析模型", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = SettingsText)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = newModel,
                     onValueChange = onNewModelChange,
                     label = { Text("模型名称") },
                     singleLine = true,
+                    shape = SettingsShape,
                     modifier = Modifier.weight(1f)
                 )
-                Button(onClick = onAdd) { Text("添加") }
+                Button(onClick = onAdd, shape = SettingsShape) { Text("添加模型") }
             }
             models.forEach { model ->
                 ModelRow(
@@ -442,7 +485,12 @@ private fun ModelRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = SettingsShape,
+        color = if (selected) Color(0xFFEAF3FF) else Color.White,
+        border = BorderStroke(1.dp, if (selected) Color(0xFFC7DCF5) else SettingsCardBorder),
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -457,6 +505,40 @@ private fun ModelRow(
             }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, contentDescription = "删除 $name")
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpeechRateSection(
+    speechRate: Float,
+    onChange: (Float) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = SettingsShape,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, SettingsCardBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("发音速度", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = SettingsText)
+            Text(
+                text = "${"%.2f".format(speechRate)}x",
+                style = MaterialTheme.typography.bodyMedium,
+                color = SettingsMuted
+            )
+            Slider(
+                value = speechRate,
+                onValueChange = onChange,
+                valueRange = 0.1f..1.0f,
+                steps = 0
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("慢", style = MaterialTheme.typography.labelMedium, color = SettingsMuted)
+                Text("正常", style = MaterialTheme.typography.labelMedium, color = SettingsMuted)
+                Text("快", style = MaterialTheme.typography.labelMedium, color = SettingsMuted)
             }
         }
     }

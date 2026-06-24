@@ -14,6 +14,13 @@ from app.core.config import Settings
 from app.core.errors import AppError
 
 logger = logging.getLogger(__name__)
+LATEX_COMMAND_RE = re.compile(
+    r"(?<!\\)\\(?=("
+    r"pi|Pi|times|cdot|div|pm|leq|geq|neq|approx|angle|degree|circ|"
+    r"frac|sqrt|theta|Theta|alpha|beta|gamma|Delta|sin|cos|tan|"
+    r"left|right|overline|parallel|perp"
+    r")\b)"
+)
 
 
 class LLMClient:
@@ -298,7 +305,7 @@ class LLMClient:
 
         # 1) direct JSON
         try:
-            parsed = json.loads(text)
+            parsed = self._json_loads_lenient(text)
             payload = self._extract_candidate_payload(parsed)
             if payload is not None:
                 return payload
@@ -309,7 +316,7 @@ class LLMClient:
         fenced = re.findall(r"```(?:json)?\s*([\s\S]*?)```", text, flags=re.IGNORECASE)
         for block in fenced:
             try:
-                parsed = json.loads(block.strip())
+                parsed = self._json_loads_lenient(block.strip())
                 payload = self._extract_candidate_payload(parsed)
                 if payload is not None:
                     return payload
@@ -319,7 +326,7 @@ class LLMClient:
         # 3) best-effort extract first balanced {...}
         obj = self._extract_first_json_object(text)
         if obj is not None:
-            parsed = json.loads(obj)
+            parsed = self._json_loads_lenient(obj)
             payload = self._extract_candidate_payload(parsed)
             if payload is not None:
                 return payload
@@ -338,7 +345,7 @@ class LLMClient:
             raise json.JSONDecodeError("empty output", raw, 0)
 
         try:
-            parsed = json.loads(text)
+            parsed = self._json_loads_lenient(text)
             if isinstance(parsed, dict):
                 self._raise_if_error(parsed)
                 return parsed
@@ -348,7 +355,7 @@ class LLMClient:
         fenced = re.findall(r"```(?:json)?\s*([\s\S]*?)```", text, flags=re.IGNORECASE)
         for block in fenced:
             try:
-                parsed = json.loads(block.strip())
+                parsed = self._json_loads_lenient(block.strip())
                 if isinstance(parsed, dict):
                     self._raise_if_error(parsed)
                     return parsed
@@ -357,7 +364,7 @@ class LLMClient:
 
         obj = self._extract_first_json_object(text)
         if obj is not None:
-            parsed = json.loads(obj)
+            parsed = self._json_loads_lenient(obj)
             if isinstance(parsed, dict):
                 self._raise_if_error(parsed)
                 return parsed
@@ -391,6 +398,63 @@ class LLMClient:
             start = text.find("{", start + 1)
         return None
 
+    def _json_loads_lenient(self, text: str) -> Any:
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as first_error:
+            repaired = self._repair_model_json_text(text)
+            if repaired == text:
+                raise first_error
+            try:
+                return json.loads(repaired)
+            except json.JSONDecodeError:
+                raise first_error
+
+    def _repair_model_json_text(self, text: str) -> str:
+        # Some compatible LLM APIs return JSON-looking text with LaTeX commands
+        # written as single backslashes, e.g. "44\pi". JSON requires "\\pi".
+        # Keep this repair narrow so normal JSON escapes such as \n remain intact.
+        repaired = LATEX_COMMAND_RE.sub(r"\\\\", text)
+        return self._escape_control_chars_inside_strings(repaired)
+
+    def _escape_control_chars_inside_strings(self, text: str) -> str:
+        out: list[str] = []
+        in_str = False
+        escape = False
+        for ch in text:
+            if in_str:
+                if escape:
+                    out.append(ch)
+                    escape = False
+                    continue
+                if ch == "\\":
+                    out.append(ch)
+                    escape = True
+                    continue
+                if ch == '"':
+                    out.append(ch)
+                    in_str = False
+                    continue
+                if ch == "\n":
+                    out.append("\\n")
+                    continue
+                if ch == "\r":
+                    out.append("\\r")
+                    continue
+                if ch == "\t":
+                    out.append("\\t")
+                    continue
+                if ord(ch) < 0x20:
+                    out.append(f"\\u{ord(ch):04x}")
+                    continue
+                out.append(ch)
+                continue
+
+            out.append(ch)
+            if ch == '"':
+                in_str = True
+        return "".join(out)
+
     def _parse_json_objects(self, text: str) -> list[dict[str, Any]]:
         objs: list[dict[str, Any]] = []
         for line in text.splitlines():
@@ -400,7 +464,7 @@ class LLMClient:
             if not s or not s.startswith("{"):
                 continue
             try:
-                parsed = json.loads(s)
+                parsed = self._json_loads_lenient(s)
             except json.JSONDecodeError:
                 continue
             if isinstance(parsed, dict):
@@ -447,7 +511,7 @@ class LLMClient:
         if not candidate:
             return None
         try:
-            parsed = json.loads(candidate)
+            parsed = self._json_loads_lenient(candidate)
             if isinstance(parsed, dict):
                 return parsed
         except json.JSONDecodeError:
@@ -457,7 +521,7 @@ class LLMClient:
         if obj is None:
             return None
         try:
-            parsed = json.loads(obj)
+            parsed = self._json_loads_lenient(obj)
             return parsed if isinstance(parsed, dict) else None
         except json.JSONDecodeError:
             return None

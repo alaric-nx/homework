@@ -76,6 +76,7 @@ ANSWER_TYPES = {
     "pinyin",
     "other",
 }
+MATH_EQUIVALENT_STATUSES = {"incorrect", "partially_correct"}
 
 
 _SUBJECT_NOTES: dict[str, str] = {
@@ -282,6 +283,9 @@ def _compose_subject_prompt(subject: str) -> str:
         "- answer_type: 只能是 fill_blank, choice, picture_word, matching, sentence_ordering, "
         "reading_qa, translation, correction, copying, calculation, proof, short_answer, composition, pinyin, other。\n"
         "- plain_text: 完整答案文本，不含题号，用于展示和复制；不要写“第X题解答”，不要放大段题解、原因分析或步骤说明。\n"
+        "- 非英语题、理科题、数字/单位/百分比/公式填空题：plain_text 只放学生应填写的答案本身，"
+        "不要把题干编号、题干前后文字、单位提示、句末分号放进 answer_items；这些题面内容必须放在 content_items。\n"
+        "- 只有英语补全句子、语文完整语句补写等确实需要上下文判断语言正确性的题型，才允许 answer_items 展示补全后的完整句子。\n"
         "- speak_text: 适合 TTS 的读法；数学公式可写自然语言读法。\n"
         "- display: 前端渲染结构；mode 根据题型选择，format 表示显示格式，latex 放 LaTeX 源码或 null，runs 保留高亮角色和换行。\n"
         "- answer_items 必须至少 1 项。理科题也必须输出最终答案或关键填写内容；solution_steps 只表示过程，不能替代 answer_items。\n"
@@ -308,13 +312,19 @@ def _compose_subject_prompt(subject: str) -> str:
         "- 只有图片里存在学生手写/已填写答案时才输出对应批改项；没有则输出空数组。\n"
         "- 必须区分印刷题面(given)、学生答案(student_answer)和标准答案(correct_answer)。\n"
         "- status 只能是 correct, incorrect, partially_correct, unanswered, unclear, not_applicable。\n"
+        "- 批改数学答案时必须先做符号等价归一：π、pi、PI、\\pi 都表示同一个圆周率符号；"
+        "44π、44pi、44\\pi、44 * π 只是写法不同，应判 correct，不能因为 π 的写法不同判错。\n"
+        "- 识别手写 π 时要特别复核，不要把清晰的 π 误读成 5、n、小数点或普通字母；"
+        "只有图片中确实能看出小数点和数字 5 时，才可把答案识别为 43.5π 这类形式。\n"
         "- 看不清学生答案时用 unclear，并在 feedback_zh 说明；开放题不适合判唯一对错时用 not_applicable 或 partially_correct。\n"
         "- 错题的逐题详细分析优先放入对应 block_id 的 solution_steps；student_answer_reviews.feedback_zh 只放短提示。\n"
         "- explanation_zh 只放整体总结、共性错因或全局提醒，不要堆放逐题题解；逐题内容必须回到 solution_steps。\n"
         "\n"
         "通用题型规则（所有学科通用，选择题和填空题各学科都可能出现）：\n"
-        "- 填空、补全句子、看图填空：plain_text 必须是补全后的完整句子或完整短语，不允许只输出填空词；"
+        "- 英语填空、英语补全句子、语文补写完整语句：plain_text 应是补全后的完整句子或完整短语，"
         "display.runs 中题目已有文字标为 given，填入答案标为 answer。\n"
+        "- 数学、科学、物理、化学、统计、单位换算、百分比、人数、金额、日期等填空：plain_text 只输出空格中应填的答案，"
+        "display.runs 通常只需要一个 answer 片段；题干和单位不要进入 answer_items。\n"
         "- 选择题：选项字母和选中内容标为 answer。\n"
         "- 看图写词/短语：答案整体标为 answer。\n"
         "- 连线/匹配：题目已有内容可标为 given，配对关系或选中编号标为 answer。\n"
@@ -396,6 +406,197 @@ class ParsePipeline:
     def _normalize_answer_type(self, raw: Any) -> str:
         value = str(raw or "other").strip().lower()
         return value if value in ANSWER_TYPES else "other"
+
+    def _should_compact_to_answer_runs(
+        self,
+        subject: str,
+        answer_type: str,
+        plain_text: str,
+        runs: list[dict[str, str]],
+    ) -> bool:
+        if subject == "english":
+            return False
+        if answer_type not in {"fill_blank", "calculation", "short_answer", "other"}:
+            return False
+        answer_text = "".join(
+            run["text"] for run in runs if run.get("role") in {"answer", "correction"}
+        ).strip()
+        if not answer_text or answer_text == plain_text.strip():
+            return False
+
+        given_text = "".join(
+            run["text"] for run in runs if run.get("role") in {"given", "connector"}
+        )
+        compact_answer_re = re.compile(
+            r"^[\s\d０-９.,，+\-−×÷*/=<>≤≥≈≠%％πΠpaiPI\\^_{}()（）\[\]°℃a-zA-Z]+$"
+        )
+        return (
+            bool(compact_answer_re.fullmatch(answer_text))
+            or "\n" in plain_text
+            or "；" in plain_text
+            or ";" in plain_text
+            or bool(re.search(r"[\u4e00-\u9fff]", given_text))
+        )
+
+    def _compact_answer_runs_if_needed(
+        self,
+        subject: str,
+        answer_type: str,
+        plain_text: str,
+        display: dict[str, Any],
+    ) -> tuple[str, dict[str, Any]]:
+        raw_runs = display.get("runs")
+        if not isinstance(raw_runs, list):
+            return plain_text, display
+        runs = [
+            run
+            for run in raw_runs
+            if isinstance(run, dict) and str(run.get("text") or "").strip()
+        ]
+        if not self._should_compact_to_answer_runs(
+            subject=subject,
+            answer_type=answer_type,
+            plain_text=plain_text,
+            runs=runs,
+        ):
+            return plain_text, display
+
+        answer_runs = [
+            {"text": run["text"], "role": run.get("role") or "answer"}
+            for run in runs
+            if run.get("role") in {"answer", "correction"}
+        ]
+        compact_text = "".join(run["text"] for run in answer_runs).strip()
+        if not compact_text:
+            return plain_text, display
+
+        compact_display = dict(display)
+        compact_display["runs"] = answer_runs
+        compact_display["preserve_newlines"] = "\n" in compact_text
+        return compact_text, compact_display
+
+    def _canonical_math_text(self, raw: str | None) -> str:
+        text = str(raw or "").strip().lower()
+        if not text:
+            return ""
+        replacements = {
+            "\\pi": "π",
+            "\\Pi": "π",
+            "Π": "π",
+            "pi": "π",
+            "\\times": "*",
+            "\\cdot": "*",
+            "×": "*",
+            "·": "*",
+            "÷": "/",
+            "−": "-",
+            "（": "(",
+            "）": ")",
+            "｛": "{",
+            "｝": "}",
+        }
+        for before, after in replacements.items():
+            text = text.replace(before.lower(), after)
+        text = re.sub(r"\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}", r"(\1)/(\2)", text)
+        text = re.sub(r"\\(?:left|right)", "", text)
+        text = text.replace("$", "")
+        text = text.replace("{", "").replace("}", "")
+        text = re.sub(r"\s+", "", text)
+        text = re.sub(r"(?<=\d)\*(?=π)", "", text)
+        return text
+
+    def _parse_number_token(self, token: str) -> float | None:
+        token = token.strip()
+        if not token:
+            return None
+        if "/" in token:
+            parts = token.split("/", 1)
+            if len(parts) != 2:
+                return None
+            numerator = self._parse_number_token(parts[0])
+            denominator = self._parse_number_token(parts[1])
+            if numerator is None or denominator in {None, 0.0}:
+                return None
+            return numerator / denominator
+        try:
+            return float(token)
+        except ValueError:
+            return None
+
+    def _pi_coefficient(self, raw: str | None) -> float | None:
+        text = self._canonical_math_text(raw)
+        if not text or text.count("π") != 1:
+            return None
+        if re.search(r"[a-zA-Z]", text):
+            return None
+
+        patterns = [
+            r"^([+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:/[+-]?(?:\d+(?:\.\d+)?|\.\d+))?)?π$",
+            r"^π\*?([+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:/[+-]?(?:\d+(?:\.\d+)?|\.\d+))?)$",
+            r"^\(?([+-]?(?:\d+(?:\.\d+)?|\.\d+))\)?/\(?([+-]?(?:\d+(?:\.\d+)?|\.\d+))\)?π$",
+            r"^π/\(?([+-]?(?:\d+(?:\.\d+)?|\.\d+))\)?$",
+        ]
+        first = re.fullmatch(patterns[0], text)
+        if first:
+            return self._parse_number_token(first.group(1) or "1")
+        second = re.fullmatch(patterns[1], text)
+        if second:
+            return self._parse_number_token(second.group(1))
+        third = re.fullmatch(patterns[2], text)
+        if third:
+            numerator = self._parse_number_token(third.group(1))
+            denominator = self._parse_number_token(third.group(2))
+            if numerator is None or denominator in {None, 0.0}:
+                return None
+            return numerator / denominator
+        fourth = re.fullmatch(patterns[3], text)
+        if fourth:
+            denominator = self._parse_number_token(fourth.group(1))
+            if denominator in {None, 0.0}:
+                return None
+            return 1.0 / denominator
+        return None
+
+    def _math_answers_equivalent(self, left: str | None, right: str | None) -> bool:
+        left_canonical = self._canonical_math_text(left)
+        right_canonical = self._canonical_math_text(right)
+        if not left_canonical or not right_canonical:
+            return False
+        if left_canonical == right_canonical:
+            return True
+
+        left_pi = self._pi_coefficient(left)
+        right_pi = self._pi_coefficient(right)
+        if left_pi is not None and right_pi is not None:
+            return abs(left_pi - right_pi) < 1e-9
+        return False
+
+    def _normalize_review_status_for_math(
+        self,
+        review: dict[str, Any],
+        answers_by_id: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
+        status = str(review.get("status") or "").strip().lower()
+        if status not in MATH_EQUIVALENT_STATUSES:
+            return review
+
+        student_answer = review.get("student_answer")
+        correct_candidates = [review.get("correct_answer")]
+        answer_id = str(review.get("answer_id") or "").strip()
+        if answer_id and answer_id in answers_by_id:
+            correct_candidates.append(answers_by_id[answer_id].get("plain_text"))
+
+        if not any(
+            self._math_answers_equivalent(student_answer, candidate)
+            for candidate in correct_candidates
+        ):
+            return review
+
+        normalized = dict(review)
+        normalized["status"] = "correct"
+        normalized["feedback_zh"] = "答案正确，π 的不同写法等价。"
+        normalized["confidence"] = max(float(normalized.get("confidence") or 0.0), 0.95)
+        return normalized
 
     def _normalize_display(
         self,
@@ -615,6 +816,7 @@ class ParsePipeline:
             raw_answer_items = out.get("answer_lines")
         if isinstance(raw_answer_items, list):
             normalized_answers: list[Any] = []
+            subject_value = str(out.get("subject") or "").strip().lower()
             for index, item in enumerate(raw_answer_items):
                 if not isinstance(item, dict):
                     normalized_answers.append(item)
@@ -642,6 +844,21 @@ class ParsePipeline:
                 speak_text = None
                 if normalized_item.get("speak_text") is not None:
                     speak_text = str(normalized_item.get("speak_text")).strip() or None
+                original_plain_text = plain_text
+                normalized_display = self._normalize_display(
+                    normalized_item.get("display"),
+                    plain_text,
+                    answer_type,
+                    legacy_segments=normalized_item.get("segments"),
+                )
+                plain_text, normalized_display = self._compact_answer_runs_if_needed(
+                    subject=subject_value,
+                    answer_type=answer_type,
+                    plain_text=plain_text,
+                    display=normalized_display,
+                )
+                if speak_text is None or plain_text != original_plain_text or speak_text == original_plain_text:
+                    speak_text = plain_text
                 normalized_answers.append(
                     {
                         "answer_id": str(
@@ -657,12 +874,7 @@ class ParsePipeline:
                         "answer_type": answer_type,
                         "plain_text": plain_text,
                         "speak_text": speak_text if speak_text is not None else plain_text,
-                        "display": self._normalize_display(
-                            normalized_item.get("display"),
-                            plain_text,
-                            answer_type,
-                            legacy_segments=normalized_item.get("segments"),
-                        ),
+                        "display": normalized_display,
                     }
                 )
             block_order_index = {bid: index for index, bid in enumerate(known_block_ids)}
@@ -676,6 +888,11 @@ class ParsePipeline:
                 ),
             )
         out.pop("answer_lines", None)
+        answers_by_id = {
+            str(item.get("answer_id") or "").strip(): item
+            for item in out.get("answer_items", [])
+            if isinstance(item, dict)
+        }
 
         raw_reviews = out.get("student_answer_reviews")
         if isinstance(raw_reviews, list):
@@ -703,38 +920,42 @@ class ParsePipeline:
                 except (TypeError, ValueError):
                     confidence = 0.8
                 normalized_reviews.append(
-                    {
-                        "review_id": str(
-                            normalized_review.get("review_id") or f"{block_id or 'q'}-r{index + 1}"
-                        ).strip(),
-                        "block_id": block_id,
-                        "answer_id": (
-                            str(normalized_review.get("answer_id")).strip()
-                            if normalized_review.get("answer_id") is not None
-                            else None
-                        ),
-                        "order": self._coerce_order(normalized_review.get("order"), index + 1),
-                        "number": (
-                            str(normalized_review.get("number")).strip()
-                            if normalized_review.get("number") is not None
-                            else None
-                        ),
-                        "student_answer": (
-                            str(normalized_review.get("student_answer")).strip()
-                            if normalized_review.get("student_answer") is not None
-                            else None
-                        ),
-                        "correct_answer": (
-                            str(normalized_review.get("correct_answer")).strip()
-                            if normalized_review.get("correct_answer") is not None
-                            else None
-                        ),
-                        "status": status,
-                        "feedback_zh": str(
-                            normalized_review.get("feedback_zh") or "需要人工确认。"
-                        ).strip(),
-                        "confidence": max(0.0, min(1.0, confidence)),
-                    }
+                    self._normalize_review_status_for_math(
+                        {
+                            "review_id": str(
+                                normalized_review.get("review_id")
+                                or f"{block_id or 'q'}-r{index + 1}"
+                            ).strip(),
+                            "block_id": block_id,
+                            "answer_id": (
+                                str(normalized_review.get("answer_id")).strip()
+                                if normalized_review.get("answer_id") is not None
+                                else None
+                            ),
+                            "order": self._coerce_order(normalized_review.get("order"), index + 1),
+                            "number": (
+                                str(normalized_review.get("number")).strip()
+                                if normalized_review.get("number") is not None
+                                else None
+                            ),
+                            "student_answer": (
+                                str(normalized_review.get("student_answer")).strip()
+                                if normalized_review.get("student_answer") is not None
+                                else None
+                            ),
+                            "correct_answer": (
+                                str(normalized_review.get("correct_answer")).strip()
+                                if normalized_review.get("correct_answer") is not None
+                                else None
+                            ),
+                            "status": status,
+                            "feedback_zh": str(
+                                normalized_review.get("feedback_zh") or "需要人工确认。"
+                            ).strip(),
+                            "confidence": max(0.0, min(1.0, confidence)),
+                        },
+                        answers_by_id,
+                    )
                 )
             out["student_answer_reviews"] = sorted(
                 normalized_reviews,

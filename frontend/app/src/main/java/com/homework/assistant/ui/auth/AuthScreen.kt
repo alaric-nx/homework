@@ -2,16 +2,21 @@
 
 package com.homework.assistant.ui.auth
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -20,20 +25,27 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.homework.assistant.data.local.SettingsStore
 import com.homework.assistant.data.remote.HomeworkApi
 import kotlinx.coroutines.launch
+
+private val AuthBackground = Color(0xFFF7F8FA)
+private val AuthCardBorder = Color(0xFFE3E8EF)
+private val AuthText = Color(0xFF172033)
+private val AuthMuted = Color(0xFF667085)
+private val AuthPrimary = Color(0xFF1565C0)
 
 @Composable
 fun AuthScreen(onAuthed: () -> Unit) {
@@ -53,93 +65,118 @@ fun AuthScreen(onAuthed: () -> Unit) {
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text(if (isRegister) "注册" else "登录") }) },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        containerColor = AuthBackground
     ) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 22.dp, vertical = 28.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = if (isRegister) "创建家庭账号" else "欢迎回来",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "登录后可以按孩子同步错题集和关注题。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 560.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "作业助手",
+                        style = MaterialTheme.typography.headlineLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = AuthText
+                    )
+                    Text(
+                        text = if (isRegister) "创建账号后，按孩子管理错题与关注题。"
+                        else "登录后继续查看题集、任务和孩子资料。",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = AuthMuted
+                    )
+                }
 
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, AuthCardBorder),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                 ) {
-                    OutlinedTextField(
-                        value = username,
-                        onValueChange = { username = it },
-                        label = { Text("用户名") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("密码") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Button(
-                        onClick = {
-                            val account = username.trim()
-                            val pass = password.trim()
-                            if (account.isBlank() || pass.length < 6) {
-                                show("请输入用户名和至少 6 位密码")
-                                return@Button
-                            }
-                            loading = true
-                            scope.launch {
-                                val result = if (isRegister) {
-                                    api.register(
-                                        username = account,
-                                        password = pass
-                                    )
-                                } else {
-                                    api.login(account = account, password = pass)
-                                }
-                                loading = false
-                                result
-                                    .onSuccess {
-                                        settingsStore.saveSession(
-                                            token = it.token,
-                                            displayName = it.user.display_name,
-                                            tenantName = it.tenant.name
-                                        )
-                                        onAuthed()
-                                    }
-                                    .onFailure { show(it.message ?: "请求失败") }
-                            }
-                        },
-                        enabled = !loading,
-                        modifier = Modifier.fillMaxWidth()
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        Text(if (loading) "处理中..." else if (isRegister) "注册并登录" else "登录")
+                        Text(
+                            text = if (isRegister) "注册账号" else "账号登录",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = AuthText
+                        )
+                        OutlinedTextField(
+                            value = username,
+                            onValueChange = { username = it },
+                            label = { Text("用户名") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = { password = it },
+                            label = { Text("密码") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Button(
+                            onClick = {
+                                val account = username.trim()
+                                val pass = password.trim()
+                                if (account.isBlank() || pass.length < 6) {
+                                    show("请输入用户名和至少 6 位密码")
+                                    return@Button
+                                }
+                                loading = true
+                                scope.launch {
+                                    val result = if (isRegister) {
+                                        api.register(username = account, password = pass)
+                                    } else {
+                                        api.login(account = account, password = pass)
+                                    }
+                                    loading = false
+                                    result
+                                        .onSuccess {
+                                            settingsStore.saveSession(
+                                                token = it.token,
+                                                displayName = it.user.display_name,
+                                                tenantName = it.tenant.name
+                                            )
+                                            onAuthed()
+                                        }
+                                        .onFailure { show(it.message ?: "请求失败") }
+                                }
+                            },
+                            enabled = !loading,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                        ) {
+                            Text(if (loading) "请稍候..." else if (isRegister) "创建账号" else "进入应用")
+                        }
+                        Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
+                            TextButton(onClick = { isRegister = !isRegister }) {
+                                Text(
+                                    text = if (isRegister) "已有账号，去登录" else "没有账号，注册",
+                                    color = AuthPrimary
+                                )
+                            }
+                        }
                     }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(2.dp))
-            Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
-                TextButton(onClick = { isRegister = !isRegister }) {
-                    Text(if (isRegister) "已有账号，去登录" else "没有账号，注册家庭")
-                }
+                Spacer(modifier = Modifier.height(1.dp))
             }
         }
     }

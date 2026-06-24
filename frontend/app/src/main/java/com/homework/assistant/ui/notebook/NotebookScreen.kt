@@ -2,6 +2,8 @@
 
 package com.homework.assistant.ui.notebook
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,16 +15,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +34,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -43,6 +47,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -52,13 +57,19 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.homework.assistant.data.local.SettingsStore
 import com.homework.assistant.data.model.QuestionCollection
-import com.homework.assistant.data.model.TaskBlock
 import com.homework.assistant.data.model.subjectLabel
 import com.homework.assistant.data.remote.HomeworkApi
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private val NotebookBackground = Color(0xFFF7F8FA)
+private val NotebookCardBorder = Color(0xFFE3E8EF)
+private val NotebookText = Color(0xFF172033)
+private val NotebookMuted = Color(0xFF667085)
+private val NotebookPrimary = Color(0xFF1565C0)
+private val NotebookShape = RoundedCornerShape(8.dp)
 
 @Composable
 fun NotebookScreen(studentId: String) {
@@ -87,9 +98,11 @@ fun NotebookScreen(studentId: String) {
         scope.launch {
             api.listCollections(token = token, studentId = studentId, type = selectedType)
                 .onSuccess {
-                    items = it.items
+                    items = it.items.filter { collection ->
+                        collection.status.isBlank() || collection.status == "active"
+                    }
                     selectedItem = selectedItem?.let { current ->
-                        it.items.firstOrNull { item -> item.id == current.id }
+                        items.firstOrNull { item -> item.id == current.id }
                     }
                 }
                 .onFailure { snackbarHostState.showSnackbar(it.message ?: "加载失败") }
@@ -108,6 +121,11 @@ fun NotebookScreen(studentId: String) {
             )
                 .onSuccess {
                     snackbarHostState.showSnackbar(if (item.collection_type == "wrong") "已移出错题集" else "已取消关注")
+                    items = items.filterNot { current ->
+                        current.id == item.id ||
+                            (current.task_block.id == item.task_block.id &&
+                                current.collection_type == item.collection_type)
+                    }
                     selectedItem = null
                     load()
                 }
@@ -120,6 +138,10 @@ fun NotebookScreen(studentId: String) {
         selectedSubject = "all"
         selectedTimeRange = "all"
         load()
+    }
+
+    BackHandler(enabled = selectedItem != null) {
+        selectedItem = null
     }
 
     val subjectOptions = remember(items) {
@@ -152,7 +174,7 @@ fun NotebookScreen(studentId: String) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("${studentName.ifBlank { "当前孩子" }}的题集") },
+                title = { Text(if (selectedItem == null) "题集" else "题目详情") },
                 navigationIcon = {
                     if (selectedItem != null) {
                         IconButton(onClick = { selectedItem = null }) {
@@ -162,7 +184,8 @@ fun NotebookScreen(studentId: String) {
                 }
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        containerColor = NotebookBackground
     ) { padding ->
         val detail = selectedItem
         if (detail != null) {
@@ -181,25 +204,21 @@ fun NotebookScreen(studentId: String) {
             modifier = Modifier.fillMaxSize().padding(padding),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = selectedType == "wrong",
-                    onClick = { selectedType = "wrong" },
-                    label = { Text("错题集") }
-                )
-                FilterChip(
-                    selected = selectedType == "watched",
-                    onClick = { selectedType = "watched" },
-                    label = { Text("关注") }
-                )
-            }
+            NotebookHeader(
+                studentName = studentName.ifBlank { "当前孩子" },
+                selectedType = selectedType,
+                totalCount = items.size,
+                visibleCount = filteredItems.size
+            )
+            CollectionTypeSwitch(
+                selectedType = selectedType,
+                onSelect = { selectedType = it },
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                label = { Text("搜索题目、答案、题解") },
+                label = { Text("搜索题目、答案或题解") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
             )
@@ -267,6 +286,93 @@ fun NotebookScreen(studentId: String) {
 }
 
 @Composable
+private fun CollectionTypeSwitch(
+    selectedType: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        CollectionTypeSwitchItem(
+            text = "错题",
+            selected = selectedType == "wrong",
+            onClick = { onSelect("wrong") },
+            modifier = Modifier.weight(1f)
+        )
+        CollectionTypeSwitchItem(
+            text = "关注",
+            selected = selectedType == "watched",
+            onClick = { onSelect("watched") },
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun CollectionTypeSwitchItem(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .height(44.dp)
+            .clickable(onClick = onClick),
+        shape = NotebookShape,
+        color = if (selected) NotebookPrimary else Color.White,
+        contentColor = if (selected) Color.White else NotebookText,
+        border = BorderStroke(1.dp, if (selected) NotebookPrimary else NotebookCardBorder),
+        shadowElevation = if (selected) 1.dp else 0.dp
+    ) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+@Composable
+private fun NotebookHeader(
+    studentName: String,
+    selectedType: String,
+    totalCount: Int,
+    visibleCount: Int
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = NotebookShape,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, NotebookCardBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Text(
+                text = "$studentName · ${if (selectedType == "wrong") "错题" else "关注"}",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = NotebookText
+            )
+            Text(
+                text = if (totalCount == visibleCount) "共 $totalCount 题" else "显示 $visibleCount / $totalCount 题",
+                style = MaterialTheme.typography.bodySmall,
+                color = NotebookMuted
+            )
+        }
+    }
+}
+
+@Composable
 private fun EmptyState(text: String) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -280,7 +386,13 @@ private fun CollectionCard(
     onRemove: () -> Unit
 ) {
     val block = item.task_block
-    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
+        shape = NotebookShape,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, NotebookCardBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
         Column(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -295,7 +407,7 @@ private fun CollectionCard(
                 Text(
                     if (item.collection_type == "wrong") "错题" else "关注",
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    color = NotebookPrimary
                 )
             }
             block.subject?.takeIf { it.isNotBlank() }?.let {
@@ -327,10 +439,10 @@ private fun CollectionCard(
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onOpen) { Text("查看详情") }
+                OutlinedButton(onClick = onOpen, shape = NotebookShape) { Text("查看") }
                 TextButton(onClick = onRemove) {
                     Icon(Icons.Default.Delete, contentDescription = null)
-                    Text(if (item.collection_type == "wrong") "移出错题" else "取消关注")
+                    Text(if (item.collection_type == "wrong") "移出" else "取消关注")
                 }
             }
         }
@@ -349,58 +461,96 @@ private fun NotebookDetail(
     val block = item.task_block
     LazyColumn(
         modifier = modifier,
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        item { DetailHeader(item = item) }
+        cropAssetUrl?.takeIf { it.isNotBlank() }?.let { url ->
+            item {
+                DetailImageCard(
+                    title = "题目切图",
+                    assetUrl = url,
+                    token = token,
+                    contentDescription = "题目切图",
+                    heightDp = 220
+                )
+            }
+        }
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            block.title.ifBlank { "题目详情" },
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            if (item.collection_type == "wrong") "错题" else "关注",
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    }
-                    block.subject?.takeIf { it.isNotBlank() }?.let {
-                        Text(subjectLabel(it), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    collectionTimeLabel(item.created_at).takeIf { it.isNotBlank() }?.let {
-                        Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    DetailSection(title = "题目", content = block.question_text)
-                    DetailSection(title = "答案", content = block.answer_text, highlight = true)
-                    DetailSection(title = "题解", content = block.solution_text)
-                    OriginalImageSection(assetUrl = assetUrl, token = token)
-                    CropImageSection(block = block, assetUrl = cropAssetUrl, token = token)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Button(onClick = onRemove, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (item.collection_type == "wrong") "移出错题集" else "取消关注")
-                    }
-                }
+            DetailSectionCard(
+                title = "题目",
+                content = block.question_text,
+                emptyText = "暂无题目文本"
+            )
+        }
+        item {
+            DetailSectionCard(
+                title = "答案",
+                content = block.answer_text,
+                emptyText = "暂无答案",
+                highlight = true
+            )
+        }
+        item {
+            DetailSectionCard(
+                title = "题解",
+                content = block.solution_text,
+                emptyText = "暂无题解"
+            )
+        }
+        assetUrl?.takeIf { it.isNotBlank() }?.let { url ->
+            item {
+                DetailImageCard(
+                    title = "原图",
+                    assetUrl = url,
+                    token = token,
+                    contentDescription = "题目原图",
+                    heightDp = 260
+                )
+            }
+        }
+        item {
+            OutlinedButton(onClick = onRemove, modifier = Modifier.fillMaxWidth(), shape = NotebookShape) {
+                Icon(Icons.Default.Delete, contentDescription = null)
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(if (item.collection_type == "wrong") "从错题移出" else "取消关注")
             }
         }
     }
 }
 
 @Composable
-private fun OriginalImageSection(assetUrl: String?, token: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        HorizontalDivider()
-        Text("题目原图", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-        if (assetUrl.isNullOrBlank()) {
-            Text("暂无原图资产", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            AuthAssetImage(assetUrl = assetUrl, token = token, contentDescription = "题目原图", heightDp = 260)
+private fun DetailHeader(item: QuestionCollection) {
+    val block = item.task_block
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = NotebookShape,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, NotebookCardBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    block.title.ifBlank { "题目详情" },
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = NotebookText,
+                    modifier = Modifier.weight(1f)
+                )
+                CollectionTypePill(item.collection_type)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                block.subject?.takeIf { it.isNotBlank() }?.let {
+                    DetailMetaPill(subjectLabel(it))
+                }
+                collectionTimeLabel(item.created_at).takeIf { it.isNotBlank() }?.let {
+                    DetailMetaPill(it.removePrefix("加入时间："))
+                }
+            }
         }
     }
 }
@@ -412,26 +562,101 @@ private fun collectionTimeLabel(createdAt: Long): String {
 }
 
 @Composable
-private fun DetailSection(title: String, content: String?, highlight: Boolean = false) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        HorizontalDivider()
-        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+private fun CollectionTypePill(type: String) {
+    Surface(
+        shape = NotebookShape,
+        color = if (type == "wrong") Color(0xFFFFF1F0) else Color(0xFFEAF3FF),
+        contentColor = if (type == "wrong") Color(0xFFD32F2F) else NotebookPrimary,
+        border = BorderStroke(1.dp, if (type == "wrong") Color(0xFFFFD2CC) else Color(0xFFC7DCF5))
+    ) {
         Text(
-            content?.takeIf { it.isNotBlank() } ?: "暂无",
-            color = if (highlight) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+            text = if (type == "wrong") "错题" else "关注",
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold
         )
     }
 }
 
 @Composable
-private fun CropImageSection(block: TaskBlock, assetUrl: String?, token: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        HorizontalDivider()
-        Text("题目切图", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-        if (assetUrl.isNullOrBlank()) {
-            Text("暂未生成独立题目切图", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            AuthAssetImage(assetUrl = assetUrl, token = token, contentDescription = "题目切图", heightDp = 220)
+private fun DetailMetaPill(text: String) {
+    Surface(
+        shape = NotebookShape,
+        color = Color(0xFFF2F4F7),
+        contentColor = NotebookMuted
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            style = MaterialTheme.typography.labelSmall
+        )
+    }
+}
+
+@Composable
+private fun DetailSectionCard(
+    title: String,
+    content: String?,
+    emptyText: String,
+    highlight: Boolean = false
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = NotebookShape,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, NotebookCardBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(15.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = NotebookText
+            )
+            Text(
+                content?.takeIf { it.isNotBlank() } ?: emptyText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (highlight) Color(0xFFD32F2F) else NotebookText
+            )
+        }
+    }
+}
+
+@Composable
+private fun DetailImageCard(
+    title: String,
+    assetUrl: String,
+    token: String,
+    contentDescription: String,
+    heightDp: Int
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = NotebookShape,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, NotebookCardBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(15.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = NotebookText
+            )
+            AuthAssetImage(
+                assetUrl = assetUrl,
+                token = token,
+                contentDescription = contentDescription,
+                heightDp = heightDp
+            )
         }
     }
 }

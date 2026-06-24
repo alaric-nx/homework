@@ -99,3 +99,56 @@ def test_parse_json_payload_rejects_step_start_only() -> None:
     raw = '{"type":"step_start","timestamp":1,"part":{"type":"step-start"}}'
     with pytest.raises(json.JSONDecodeError):
         client._parse_json_payload(raw)  # noqa: SLF001
+
+
+def test_parse_json_payload_repairs_single_backslash_latex() -> None:
+    client = LLMClient(Settings())
+    raw = r'''
+{
+  "schema_version": "4.0",
+  "subject": "science",
+  "question_meaning_zh": "求圆弧长度。",
+  "question_blocks": [{"block_id": "q1", "order": 1, "title": "第1题", "question_meaning_zh": "求长度。", "content_items": []}],
+  "answer_items": [{
+    "answer_id": "q1-a1",
+    "block_id": "q1",
+    "order": 1,
+    "number": "1",
+    "answer_type": "calculation",
+    "plain_text": "44\pi",
+    "speak_text": "四十四派",
+    "display": {"mode": "math_block", "format": "plain_math", "latex": null, "preserve_newlines": false, "runs": [{"text": "44\pi", "role": "answer"}]}
+  }],
+  "student_answer_reviews": [],
+  "solution_steps": [{"block_id": "q1", "number": "1", "title": "计算", "content_zh": "总弧长。", "formula": "L = (1/2)π \times 88 = 44π", "result": "44\pi"}],
+  "explanation_zh": "按弧长公式计算。",
+  "learning_points": [],
+  "uncertainty": {"requires_review": false, "confidence": 0.9, "reason": null}
+}
+'''
+
+    payload = client._parse_json_payload(raw)  # noqa: SLF001
+
+    assert payload["answer_items"][0]["plain_text"] == r"44\pi"
+    assert payload["solution_steps"][0]["formula"] == r"L = (1/2)π \times 88 = 44π"
+
+
+def test_parse_json_payload_repairs_literal_newline_inside_string() -> None:
+    client = LLMClient(Settings())
+    raw = '''{
+  "schema_version": "4.0",
+  "subject": "science",
+  "question_meaning_zh": "求圆弧长度。",
+  "question_blocks": [{"block_id": "q1", "order": 1, "title": "第1题", "question_meaning_zh": "求长度。", "content_items": []}],
+  "answer_items": [{"answer_id": "q1-a1", "block_id": "q1", "order": 1, "number": "1", "answer_type": "calculation", "plain_text": "44π", "speak_text": "四十四派", "display": {"mode": "math_block", "format": "plain_math", "latex": null, "preserve_newlines": false, "runs": [{"text": "44π", "role": "answer"}]}}],
+  "student_answer_reviews": [],
+  "solution_steps": [{"block_id": "q1", "number": "1", "title": "计算", "content_zh": "第一行
+第二行", "formula": "44π", "result": "44π"}],
+  "explanation_zh": "按弧长公式计算。",
+  "learning_points": [],
+  "uncertainty": {"requires_review": false, "confidence": 0.9, "reason": null}
+}'''
+
+    payload = client._parse_json_payload(raw)  # noqa: SLF001
+
+    assert payload["solution_steps"][0]["content_zh"] == "第一行\n第二行"

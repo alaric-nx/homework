@@ -159,6 +159,17 @@ class SettingsStore(context: Context) {
 
     fun getCurrentStudentGrade(): String = prefs.getString(KEY_CURRENT_STUDENT_GRADE, "") ?: ""
 
+    fun getSpeechRate(): Float {
+        val value = prefs.getFloat(KEY_SPEECH_RATE, DEFAULT_SPEECH_RATE)
+        return value.coerceIn(MIN_SPEECH_RATE, MAX_SPEECH_RATE)
+    }
+
+    fun saveSpeechRate(rate: Float) {
+        prefs.edit()
+            .putFloat(KEY_SPEECH_RATE, rate.coerceIn(MIN_SPEECH_RATE, MAX_SPEECH_RATE))
+            .apply()
+    }
+
     private fun saveModels(models: List<String>) {
         prefs.edit().putString(KEY_MODELS, gson.toJson(models)).apply()
     }
@@ -186,5 +197,9 @@ class SettingsStore(context: Context) {
         private const val KEY_CURRENT_STUDENT_ID = "current_student_id"
         private const val KEY_CURRENT_STUDENT_NAME = "current_student_name"
         private const val KEY_CURRENT_STUDENT_GRADE = "current_student_grade"
+        private const val KEY_SPEECH_RATE = "speech_rate"
+        private const val DEFAULT_SPEECH_RATE = 0.5f
+        private const val MIN_SPEECH_RATE = 0.1f
+        private const val MAX_SPEECH_RATE = 1.0f
     }
 }

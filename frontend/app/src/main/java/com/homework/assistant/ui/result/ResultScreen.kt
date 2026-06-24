@@ -134,7 +134,8 @@ private data class DisplayQuestionBlock(
     val contentItems: List<ResultContentItem>,
     val questionMeaning: String,
     val lines: List<DisplayAnswerLine>,
-    val solutionSteps: List<SolutionStep>
+    val solutionSteps: List<SolutionStep>,
+    val learningPoints: List<LearningPoint>
 )
 
 private data class CollectionToggleState(
@@ -285,8 +286,16 @@ fun ResultScreen(
             blocks = result?.question_blocks.orEmpty(),
             answerItems = result?.answer_items.orEmpty(),
             reviews = result?.student_answer_reviews.orEmpty(),
-            solutionSteps = result?.solution_steps.orEmpty()
+            solutionSteps = result?.solution_steps.orEmpty(),
+            learningPoints = result?.learning_points.orEmpty()
         )
+    }
+    val globalLearningPoints = remember(result, questionBlocks) {
+        val knownBlockIds = questionBlocks.map { it.blockId }.toSet()
+        result?.learning_points.orEmpty().filter { point ->
+            val blockId = point.block_id?.trim().orEmpty()
+            blockId.isBlank() || blockId !in knownBlockIds
+        }
     }
     val vocabResolver = remember(result) {
         VocabResolver(
@@ -564,8 +573,8 @@ fun ResultScreen(
                         }
                     }
                     item { SectionCard(stringResource(R.string.explanation), r.explanation_zh) }
-                    if (r.learning_points.isNotEmpty()) {
-                        item { LearningPointsCard(r.learning_points, displayPolicy) }
+                    if (globalLearningPoints.isNotEmpty()) {
+                        item { LearningPointsCard(globalLearningPoints, displayPolicy) }
                     }
                 }
             }
@@ -705,11 +714,19 @@ private fun QuestionBlockAnswerCard(
                         HorizontalDivider(color = Color(0xFFE9EDF3))
                         InlineSolutionStepsSection(remainingSolutionSteps)
                     }
+                    if (block.learningPoints.isNotEmpty()) {
+                        HorizontalDivider(color = Color(0xFFE9EDF3))
+                        InlineLearningPointsSection(block.learningPoints, displayPolicy)
+                    }
                 } else {
                     Text("暂无参考答案", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF667085))
                     if (block.solutionSteps.isNotEmpty()) {
                         HorizontalDivider(color = Color(0xFFE9EDF3))
                         InlineSolutionStepsSection(block.solutionSteps)
+                    }
+                    if (block.learningPoints.isNotEmpty()) {
+                        HorizontalDivider(color = Color(0xFFE9EDF3))
+                        InlineLearningPointsSection(block.learningPoints, displayPolicy)
                     }
                 }
             }
@@ -1110,6 +1127,24 @@ private fun LearningPointsCard(points: List<LearningPoint>, displayPolicy: Subje
 }
 
 @Composable
+private fun InlineLearningPointsSection(points: List<LearningPoint>, displayPolicy: SubjectDisplayPolicy) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            stringResource(R.string.learning_points),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF174A7C)
+        )
+        points.forEachIndexed { index, point ->
+            if (index > 0) {
+                HorizontalDivider(color = Color(0xFFE9EDF3))
+            }
+            LearningPointRow(point, displayPolicy)
+        }
+    }
+}
+
+@Composable
 private fun LearningPointRow(point: LearningPoint, displayPolicy: SubjectDisplayPolicy) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         FlowRow(
@@ -1230,6 +1265,7 @@ private fun SpeakableLineRow(
     onSpeakWord: (String) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        val isCorrectReview = review?.status?.trim()?.lowercase(Locale.US) == "correct"
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.Top
@@ -1310,6 +1346,11 @@ private fun SpeakableLineRow(
                 }
             }
 
+            if (isCorrectReview) {
+                Spacer(modifier = Modifier.width(8.dp))
+                CorrectReviewChip()
+            }
+
             val showTranslate = displayPolicy.showTranslate(translation)
             if (displayPolicy.answerLineSpeak || showTranslate) {
                 Row(
@@ -1340,7 +1381,26 @@ private fun SpeakableLineRow(
                 }
             }
         }
-        review?.let { StudentAnswerReviewRow(it) }
+        if (!isCorrectReview) {
+            review?.let { StudentAnswerReviewRow(it) }
+        }
+    }
+}
+
+@Composable
+private fun CorrectReviewChip() {
+    Surface(
+        shape = TokenShape,
+        color = Color(0xFFEAF7EF),
+        contentColor = Color(0xFF2E7D32),
+        border = BorderStroke(1.dp, Color(0xFFB7DEC4))
+    ) {
+        Text(
+            text = "正确",
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -1376,6 +1436,11 @@ private fun MathAnswerLine(
         displayFormat = displayFormat,
         latex = latex
     )
+    val readableSegments = segments.map { segment ->
+        segment.copy(text = readableMathText(text = segment.text))
+    }
+    val segmentDisplayText = readableSegments.joinToString(separator = "") { it.text }.trim()
+    val segmentsMatchDisplay = readableSegments.isNotEmpty() && segmentDisplayText == displayText.trim()
     Surface(
         shape = ResultCardShape,
         color = SoftNeutralSurface,
@@ -1386,19 +1451,32 @@ private fun MathAnswerLine(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                text = displayText,
-                style = MaterialTheme.typography.bodyLarge,
-                color = InkText
-            )
-            if (segments.size > 1 || segments.firstOrNull()?.text?.trim() != displayText.trim()) {
+            if (segmentsMatchDisplay) {
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    segments.forEach { segment ->
+                    readableSegments.forEach { segment ->
                         Text(
-                            text = readableMathText(text = segment.text),
+                            text = segment.text,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = answerSegmentColor(segment.role)
+                        )
+                    }
+                }
+            } else {
+                Text(
+                    text = displayText,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = InkText
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    readableSegments.forEach { segment ->
+                        Text(
+                            text = segment.text,
                             style = MaterialTheme.typography.bodyMedium,
                             color = answerSegmentColor(segment.role)
                         )
@@ -1439,8 +1517,8 @@ private fun StudentAnswerReviewRow(review: StudentAnswerReview) {
             if (student.isNotBlank() || correct.isNotBlank()) {
                 Text(
                     text = listOfNotNull(
-                        student.takeIf { it.isNotBlank() }?.let { "你写的是：$it" },
-                        correct.takeIf { it.isNotBlank() }?.let { "正确答案：$it" }
+                        student.takeIf { it.isNotBlank() }?.let { "你写的是：${readableMathText(it)}" },
+                        correct.takeIf { it.isNotBlank() }?.let { "正确答案：${readableMathText(it)}" }
                     ).joinToString("  "),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF475467)
@@ -1448,7 +1526,7 @@ private fun StudentAnswerReviewRow(review: StudentAnswerReview) {
             }
             if (review.feedback_zh.isNotBlank()) {
                 Text(
-                    text = review.feedback_zh,
+                    text = readableMathText(review.feedback_zh),
                     style = MaterialTheme.typography.bodySmall,
                     color = InkText
                 )
@@ -1771,7 +1849,8 @@ private fun buildDisplayQuestionBlocks(
     blocks: List<QuestionBlock>,
     answerItems: List<ResultAnswerItem>,
     reviews: List<StudentAnswerReview>,
-    solutionSteps: List<SolutionStep>
+    solutionSteps: List<SolutionStep>,
+    learningPoints: List<LearningPoint>
 ): List<DisplayQuestionBlock> {
     val displayLines = buildDisplayAnswerLines(answerItems, reviews)
     val linesByBlock = displayLines.groupBy { it.blockId }
@@ -1782,6 +1861,9 @@ private fun buildDisplayQuestionBlocks(
             { it.number }
         ))
         .groupBy { it.block_id.trim() }
+    val learningPointsByBlock = learningPoints
+        .filter { !it.block_id.isNullOrBlank() }
+        .groupBy { it.block_id?.trim().orEmpty() }
     val sortedBlocks = blocks.sortedWith(compareBy<QuestionBlock> { it.order.takeIf { order -> order > 0 } ?: Int.MAX_VALUE })
     val knownBlockIds = sortedBlocks.mapNotNull { it.block_id.trim().takeIf { id -> id.isNotBlank() } }.toSet()
     val result = sortedBlocks.mapIndexedNotNull { index, block ->
@@ -1794,7 +1876,8 @@ private fun buildDisplayQuestionBlocks(
             contentItems = block.content_items.sortedWith(compareBy<ResultContentItem> { it.order.takeIf { order -> order > 0 } ?: Int.MAX_VALUE }),
             questionMeaning = block.question_meaning_zh.trim(),
             lines = linesByBlock[blockId].orEmpty(),
-            solutionSteps = stepsByBlock[blockId].orEmpty()
+            solutionSteps = stepsByBlock[blockId].orEmpty(),
+            learningPoints = learningPointsByBlock[blockId].orEmpty()
         )
     }.toMutableList()
 
@@ -1809,7 +1892,8 @@ private fun buildDisplayQuestionBlocks(
                 contentItems = emptyList(),
                 questionMeaning = "",
                 lines = orphanLines,
-                solutionSteps = emptyList()
+                solutionSteps = emptyList(),
+                learningPoints = emptyList()
             )
         )
     }
