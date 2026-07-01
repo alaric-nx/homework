@@ -119,6 +119,7 @@ private data class DisplayAnswerLine(
     val number: String?,
     val lineType: String,
     val text: String,
+    val meaningZh: String?,
     val speakText: String,
     val displayMode: String,
     val displayFormat: String,
@@ -1216,6 +1217,7 @@ private fun AnswerPronunciationContent(
                 number = line.number,
                 lineType = line.lineType,
                 text = line.text,
+                meaningZh = line.meaningZh,
                 speakText = line.speakText,
                 displayMode = line.displayMode,
                 displayFormat = line.displayFormat,
@@ -1225,7 +1227,6 @@ private fun AnswerPronunciationContent(
                 review = line.review,
                 vocabResolver = vocabResolver,
                 displayPolicy = displayPolicy,
-                translation = null,
                 activeTip = activeTip,
                 activeSentenceTip = activeSentenceTip,
                 onTipChange = onTipChange,
@@ -1247,6 +1248,7 @@ private fun SpeakableLineRow(
     number: String?,
     lineType: String,
     text: String,
+    meaningZh: String?,
     speakText: String,
     displayMode: String,
     displayFormat: String,
@@ -1256,7 +1258,6 @@ private fun SpeakableLineRow(
     review: StudentAnswerReview?,
     vocabResolver: VocabResolver,
     displayPolicy: SubjectDisplayPolicy,
-    translation: String?,
     activeTip: WordTipTarget?,
     activeSentenceTip: SentenceTipTarget?,
     onTipChange: (WordTipTarget?) -> Unit,
@@ -1351,35 +1352,27 @@ private fun SpeakableLineRow(
                 CorrectReviewChip()
             }
 
-            val showTranslate = displayPolicy.showTranslate(translation)
-            if (displayPolicy.answerLineSpeak || showTranslate) {
+            if (displayPolicy.answerLineSpeak) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                     verticalAlignment = Alignment.Top
                 ) {
-                    if (displayPolicy.answerLineSpeak) {
-                        IconButton(onClick = { onSpeakLine(speakText.ifBlank { text }) }) {
-                            Icon(
-                                Icons.Default.VolumeUp,
-                                contentDescription = stringResource(R.string.pronunciation_voice),
-                                tint = Color(0xFF1565C0)
-                            )
-                        }
-                    }
-                    if (showTranslate) {
-                        SentenceTranslationButton(
-                            lineId = lineId,
-                            text = text,
-                            translation = translation,
-                            activeSentenceTip = activeSentenceTip,
-                            onTipChange = {
-                                onTipChange(null)
-                                onSentenceTipChange(it)
-                            }
+                    IconButton(onClick = { onSpeakLine(speakText.ifBlank { text }) }) {
+                        Icon(
+                            Icons.Default.VolumeUp,
+                            contentDescription = stringResource(R.string.pronunciation_voice),
+                            tint = Color(0xFF1565C0)
                         )
                     }
                 }
             }
+        }
+        if (displayPolicy.subject == "english" && !meaningZh.isNullOrBlank()) {
+            Text(
+                text = meaningZh,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFF475467)
+            )
         }
         if (!isCorrectReview) {
             review?.let { StudentAnswerReviewRow(it) }
@@ -1980,6 +1973,7 @@ private fun buildDisplayAnswerLines(
             number = line.number?.trim()?.takeIf { it.isNotBlank() },
             lineType = line.answer_type.trim().lowercase(Locale.US),
             text = text,
+            meaningZh = line.meaning_zh?.trim()?.takeIf { it.isNotBlank() },
             speakText = line.speak_text?.trim()?.takeIf { it.isNotBlank() } ?: text,
             displayMode = line.display.mode.trim().lowercase(Locale.US),
             displayFormat = line.display.format.trim().lowercase(Locale.US),

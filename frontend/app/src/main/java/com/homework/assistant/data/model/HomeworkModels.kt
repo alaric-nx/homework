@@ -86,6 +86,7 @@ data class AnswerItem(
     val number: String? = null,
     val answer_type: String = "other",
     val plain_text: String = "",
+    val meaning_zh: String? = null,
     val speak_text: String? = null,
     val display: AnswerDisplay = AnswerDisplay()
 )

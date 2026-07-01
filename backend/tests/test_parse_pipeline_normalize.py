@@ -42,6 +42,7 @@ def _v4_payload() -> dict:
                 "number": "1",
                 "answer_type": "fill_blank",
                 "plain_text": "I am a student.",
+                "meaning_zh": "我是一名学生。",
                 "speak_text": "I am a student.",
                 "display": {
                     "mode": "inline_segments",
@@ -124,9 +125,9 @@ def test_normalize_candidate_sorts_blocks_and_answers_by_order() -> None:
             {"block_id": "q1", "order": 1, "title": "第一题", "question_meaning_zh": "第一题。", "content_items": []},
         ],
         "answer_items": [
-            {"answer_id": "q1-a2", "block_id": "q1", "order": 2, "number": "2", "answer_type": "short_answer", "plain_text": "B", "speak_text": "B", "display": {"mode": "plain", "format": "plain_text", "latex": None, "preserve_newlines": False, "runs": [{"text": "B", "role": "answer"}]}},
-            {"answer_id": "q1-a1", "block_id": "q1", "order": 1, "number": "1", "answer_type": "short_answer", "plain_text": "A", "speak_text": "A", "display": {"mode": "plain", "format": "plain_text", "latex": None, "preserve_newlines": False, "runs": [{"text": "A", "role": "answer"}]}},
-            {"answer_id": "q2-a1", "block_id": "q2", "order": 1, "number": "1", "answer_type": "short_answer", "plain_text": "C", "speak_text": "C", "display": {"mode": "plain", "format": "plain_text", "latex": None, "preserve_newlines": False, "runs": [{"text": "C", "role": "answer"}]}},
+            {"answer_id": "q1-a2", "block_id": "q1", "order": 2, "number": "2", "answer_type": "short_answer", "plain_text": "B", "meaning_zh": None, "speak_text": "B", "display": {"mode": "plain", "format": "plain_text", "latex": None, "preserve_newlines": False, "runs": [{"text": "B", "role": "answer"}]}},
+            {"answer_id": "q1-a1", "block_id": "q1", "order": 1, "number": "1", "answer_type": "short_answer", "plain_text": "A", "meaning_zh": None, "speak_text": "A", "display": {"mode": "plain", "format": "plain_text", "latex": None, "preserve_newlines": False, "runs": [{"text": "A", "role": "answer"}]}},
+            {"answer_id": "q2-a1", "block_id": "q2", "order": 1, "number": "1", "answer_type": "short_answer", "plain_text": "C", "meaning_zh": None, "speak_text": "C", "display": {"mode": "plain", "format": "plain_text", "latex": None, "preserve_newlines": False, "runs": [{"text": "C", "role": "answer"}]}},
         ],
     }
 
@@ -189,6 +190,7 @@ def test_normalize_candidate_compacts_non_english_numeric_fill_blank() -> None:
         "number": "(2)",
         "answer_type": "fill_blank",
         "plain_text": "(2) 九年级女生人数占九年级学生人数的\n45%\n；",
+        "meaning_zh": None,
         "speak_text": "(2) 九年级女生人数占九年级学生人数的 45% ；",
         "display": {
             "mode": "inline_segments",
@@ -222,6 +224,7 @@ def test_normalize_candidate_marks_equivalent_pi_answer_correct() -> None:
             "answer_id": "q1-a1",
             "answer_type": "calculation",
             "plain_text": "44π",
+            "meaning_zh": None,
             "speak_text": "四十四派",
             "display": {
                 "mode": "math_block",
@@ -264,6 +267,7 @@ def test_normalize_candidate_keeps_different_pi_coefficient_incorrect() -> None:
             "answer_id": "q1-a1",
             "answer_type": "calculation",
             "plain_text": "44π",
+            "meaning_zh": None,
             "display": {
                 "mode": "math_block",
                 "format": "plain_math",

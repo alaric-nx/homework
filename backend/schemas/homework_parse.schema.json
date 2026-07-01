@@ -74,6 +74,7 @@
           "number",
           "answer_type",
           "plain_text",
+          "meaning_zh",
           "speak_text",
           "display"
         ],
@@ -99,6 +100,9 @@
           "plain_text": {
             "type": "string",
             "minLength": 1
+          },
+          "meaning_zh": {
+            "type": ["string", "null"]
           },
           "speak_text": {
             "type": ["string", "null"]

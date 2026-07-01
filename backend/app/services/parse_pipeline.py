@@ -180,7 +180,7 @@ _SUBJECT_EXAMPLES: dict[str, str] = {
         '  "subject": "general",\n'
         '  "question_meaning_zh": "题目要求从选项中选择正确答案。",\n'
         '  "question_blocks": [{"block_id": "q1", "order": 1, "title": "第1题", "question_meaning_zh": "从选项中选出正确答案。", "content_items": [{"item_id": "q1-c1", "order": 1, "group_id": null, "type": "instruction", "text": "选择正确答案。", "meaning_zh": "选出正确选项。", "language": "zh", "speak_text": "选择正确答案。", "speakable": true}]}],\n'
-        '  "answer_items": [{"answer_id": "q1-a1", "block_id": "q1", "order": 1, "number": "1", "answer_type": "choice", "plain_text": "B", "speak_text": "B", "display": {"mode": "choice", "format": "plain_text", "latex": null, "preserve_newlines": false, "runs": [{"text": "B", "role": "answer"}]}}],\n'
+        '  "answer_items": [{"answer_id": "q1-a1", "block_id": "q1", "order": 1, "number": "1", "answer_type": "choice", "plain_text": "B", "meaning_zh": null, "speak_text": "B", "display": {"mode": "choice", "format": "plain_text", "latex": null, "preserve_newlines": false, "runs": [{"text": "B", "role": "answer"}]}}],\n'
         '  "student_answer_reviews": [],\n'
         '  "solution_steps": [],\n'
         '  "explanation_zh": "根据题意，B 项符合。",\n'
@@ -195,7 +195,7 @@ _SUBJECT_EXAMPLES: dict[str, str] = {
         '  "subject": "english",\n'
         '  "question_meaning_zh": "题目要求根据例句补全句子。",\n'
         '  "question_blocks": [{"block_id": "q1", "order": 1, "title": "第1题", "question_meaning_zh": "读例句后把空格补成完整句子。", "content_items": [{"item_id": "q1-c1", "order": 1, "group_id": null, "type": "instruction", "text": "Complete the sentence.", "meaning_zh": "补全句子。", "language": "en", "speak_text": "Complete the sentence.", "speakable": true}, {"item_id": "q1-c2", "order": 2, "group_id": "example-1", "type": "example", "text": "Example: I am happy.", "meaning_zh": "例句：我很开心。", "language": "en", "speak_text": "I am happy.", "speakable": true}]}],\n'
-        '  "answer_items": [{"answer_id": "q1-a1", "block_id": "q1", "order": 1, "number": "1", "answer_type": "fill_blank", "plain_text": "I am a student.", "speak_text": "I am a student.", "display": {"mode": "inline_segments", "format": "plain_text", "latex": null, "preserve_newlines": false, "runs": [{"text": "I ", "role": "given"}, {"text": "am", "role": "answer"}, {"text": " a student.", "role": "given"}]}}],\n'
+        '  "answer_items": [{"answer_id": "q1-a1", "block_id": "q1", "order": 1, "number": "1", "answer_type": "fill_blank", "plain_text": "I am a student.", "meaning_zh": "我是一名学生。", "speak_text": "I am a student.", "display": {"mode": "inline_segments", "format": "plain_text", "latex": null, "preserve_newlines": false, "runs": [{"text": "I ", "role": "given"}, {"text": "am", "role": "answer"}, {"text": " a student.", "role": "given"}]}}],\n'
         '  "student_answer_reviews": [{"review_id": "q1-r1", "block_id": "q1", "answer_id": "q1-a1", "order": 1, "number": "1", "student_answer": "am", "correct_answer": "am", "status": "correct", "feedback_zh": "填写正确。", "confidence": 0.95}],\n'
         '  "solution_steps": [],\n'
         '  "explanation_zh": "be 动词与 I 搭配用 am。",\n'
@@ -238,7 +238,7 @@ def _compose_subject_prompt(subject: str) -> str:
         f"5) subject 必须固定输出为 \"{subject}\"。\n"
         "6) question_blocks 是数组，元素字段：block_id, order, title, question_meaning_zh, content_items。\n"
         "7) content_items 是题面可见内容数组，元素字段：item_id, order, group_id, type, text, meaning_zh, language, speak_text, speakable。\n"
-        "8) answer_items 是参考答案数组，元素字段：answer_id, block_id, order, number, answer_type, plain_text, speak_text, display。\n"
+        "8) answer_items 是参考答案数组，元素字段：answer_id, block_id, order, number, answer_type, plain_text, meaning_zh, speak_text, display。\n"
         "9) display 字段：mode, format, latex, preserve_newlines, runs；runs 元素字段 text, role。\n"
         "10) student_answer_reviews 是学生手写答案批改数组，元素字段：review_id, block_id, answer_id, order, number, student_answer, correct_answer, status, feedback_zh, confidence。无手写答案时输出空数组。\n"
         "11) solution_steps 是数组，元素字段：block_id, number, title, content_zh, formula, result。\n"
@@ -287,6 +287,7 @@ def _compose_subject_prompt(subject: str) -> str:
         "不要把题干编号、题干前后文字、单位提示、句末分号放进 answer_items；这些题面内容必须放在 content_items。\n"
         "- 只有英语补全句子、语文完整语句补写等确实需要上下文判断语言正确性的题型，才允许 answer_items 展示补全后的完整句子。\n"
         "- speak_text: 适合 TTS 的读法；数学公式可写自然语言读法。\n"
+        "- meaning_zh: 英语答案行必须给整句中文翻译；非英语或不需要翻译时为 null。\n"
         "- display: 前端渲染结构；mode 根据题型选择，format 表示显示格式，latex 放 LaTeX 源码或 null，runs 保留高亮角色和换行。\n"
         "- answer_items 必须至少 1 项。理科题也必须输出最终答案或关键填写内容；solution_steps 只表示过程，不能替代 answer_items。\n"
         "- 逐题题解、推理、选项排除、计算过程必须放入对应 block_id 的 solution_steps；前端会把这些步骤直接展示在该题答案后面。\n"
@@ -346,7 +347,7 @@ def _compose_subject_prompt(subject: str) -> str:
         "- 同一张图中多个相关题目不能混成一个题目块；每个独立可批改小题必须按实际阅读顺序拆成独立 question_blocks。\n"
         "- 大题标题、题型说明、共同材料、例句、词库、阅读材料不决定题卡粒度；它们只能作为 content_items 归属到相关小题。\n"
         "- learning_points 只收录有助于理解题目、答案或易错点的知识点，不要硬凑；label 可写 grammar, phrase, pinyin, phonics 等自由标签。\n"
-        "- 所有适合朗读的题面内容放在 content_items[].speak_text；答案读法放在 answer_items[].speak_text。\n"
+        "- 所有适合朗读的题面内容放在 content_items[].speak_text；答案读法放在 answer_items[].speak_text；英语答案的整句中文翻译放在 answer_items[].meaning_zh。\n"
         "- 如果某个答案不确定，仍按编号保留位置，并在 uncertainty 中说明。\n"
         "\n"
         "不确定性规则：\n"
@@ -873,6 +874,14 @@ class ParsePipeline:
                         ),
                         "answer_type": answer_type,
                         "plain_text": plain_text,
+                        "meaning_zh": (
+                            str(
+                                normalized_item.get("meaning_zh")
+                                or normalized_item.get("translation")
+                                or ""
+                            ).strip()
+                            or None
+                        ),
                         "speak_text": speak_text if speak_text is not None else plain_text,
                         "display": normalized_display,
                     }
@@ -1101,7 +1110,8 @@ class ParsePipeline:
             "answer_items, student_answer_reviews, solution_steps, explanation_zh, learning_points, uncertainty。\n"
             "schema_version 必须是 \"4.0\"。\n"
             "question_blocks[].content_items 必须存在；content_items[] 必须包含 item_id, order, group_id, type, text, meaning_zh, language, speak_text, speakable；没有题面内容用空数组。\n"
-            "answer_items[].display 必须包含 mode, format, latex, preserve_newlines, runs；runs[].role 只能是 given, answer, connector, correction, student_answer。\n"
+            "answer_items[] 必须包含 answer_id, block_id, order, number, answer_type, plain_text, meaning_zh, speak_text, display；"
+            "display 必须包含 mode, format, latex, preserve_newlines, runs；runs[].role 只能是 given, answer, connector, correction, student_answer。\n"
             "learning_points[].category 只能是 word, concept, formula, unit, method, other；"
             "原始细分类放入 label。\n"
             "所有数组字段必须存在，没有内容用空数组。\n"

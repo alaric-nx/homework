@@ -90,6 +90,7 @@ class AnswerItem(BaseModel):
         "other",
     ] = "other"
     plain_text: str = Field(min_length=1)
+    meaning_zh: str | None = None
     speak_text: str | None = None
     display: AnswerDisplay
 

@@ -40,6 +40,7 @@ V4_PAYLOAD = {
             "number": "1",
             "answer_type": "fill_blank",
             "plain_text": "I am a student.",
+            "meaning_zh": "我是一名学生。",
             "speak_text": "I am a student.",
             "display": {
                 "mode": "inline_segments",
@@ -116,6 +117,7 @@ def test_parse_json_payload_repairs_single_backslash_latex() -> None:
     "number": "1",
     "answer_type": "calculation",
     "plain_text": "44\pi",
+    "meaning_zh": null,
     "speak_text": "四十四派",
     "display": {"mode": "math_block", "format": "plain_math", "latex": null, "preserve_newlines": false, "runs": [{"text": "44\pi", "role": "answer"}]}
   }],
@@ -140,7 +142,7 @@ def test_parse_json_payload_repairs_literal_newline_inside_string() -> None:
   "subject": "science",
   "question_meaning_zh": "求圆弧长度。",
   "question_blocks": [{"block_id": "q1", "order": 1, "title": "第1题", "question_meaning_zh": "求长度。", "content_items": []}],
-  "answer_items": [{"answer_id": "q1-a1", "block_id": "q1", "order": 1, "number": "1", "answer_type": "calculation", "plain_text": "44π", "speak_text": "四十四派", "display": {"mode": "math_block", "format": "plain_math", "latex": null, "preserve_newlines": false, "runs": [{"text": "44π", "role": "answer"}]}}],
+  "answer_items": [{"answer_id": "q1-a1", "block_id": "q1", "order": 1, "number": "1", "answer_type": "calculation", "plain_text": "44π", "meaning_zh": null, "speak_text": "四十四派", "display": {"mode": "math_block", "format": "plain_math", "latex": null, "preserve_newlines": false, "runs": [{"text": "44π", "role": "answer"}]}}],
   "student_answer_reviews": [],
   "solution_steps": [{"block_id": "q1", "number": "1", "title": "计算", "content_zh": "第一行
 第二行", "formula": "44π", "result": "44π"}],

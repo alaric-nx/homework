@@ -48,6 +48,7 @@ def _task_payload(updated_at: float, schema_version: int = TASK_RESULT_SCHEMA_VE
                     "number": "1",
                     "answer_type": "fill_blank",
                     "plain_text": "I am a student.",
+                    "meaning_zh": "我是一名学生。",
                     "speak_text": "I am a student.",
                     "display": {
                         "mode": "inline_segments",

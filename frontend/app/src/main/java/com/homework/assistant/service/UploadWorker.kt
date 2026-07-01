@@ -84,7 +84,12 @@ class UploadWorker(
             return Result.failure()
         }
 
-        val model = settings.modelName.trim()
+        val taskModel = task.modelName.trim()
+        val model = when {
+            taskModel.isBlank() -> settings.modelName.trim()
+            taskModel == "default" -> ""
+            else -> taskModel
+        }
         val displayModel = model.ifBlank { "default" }
 
         // 确保状态为 RUNNING，并记录本次任务实际使用的模型。
@@ -122,7 +127,7 @@ class UploadWorker(
         Log.d(TAG, "Task $taskId submitted, backendTaskId=$backendTaskId subject=$subject")
 
         // 2) 轮询后端任务状态
-        return pollLoop(taskId, backendTaskId)
+        return pollLoop(taskId, backendTaskId, displayModel)
     }
 
     /**
@@ -132,7 +137,11 @@ class UploadWorker(
      * - 404       → 直接 FAILED「任务已过期」
      * - 超时       → FAILED「解析超时」
      */
-    private suspend fun pollLoop(localTaskId: String, backendTaskId: String): Result {
+    private suspend fun pollLoop(
+        localTaskId: String,
+        backendTaskId: String,
+        fallbackModelName: String
+    ): Result {
         repeat(MAX_POLL_ATTEMPTS) { attempt ->
             delay(POLL_INTERVAL_MS)
 
@@ -159,9 +168,11 @@ class UploadWorker(
                             val fresh = repo.getById(localTaskId)
                                 ?: return Result.failure()
                             val originalAssetId = syncNotebookTask(fresh, parseResult.subject)
+                            val actualModel = status.model.trim().ifBlank { fallbackModelName }
                             repo.update(
                                 fresh.copy(
                                     status = "SUCCESS",
+                                    modelName = actualModel,
                                     originalAssetId = originalAssetId ?: fresh.originalAssetId,
                                     resultJson = resultJson,
                                     errorMessage = null,

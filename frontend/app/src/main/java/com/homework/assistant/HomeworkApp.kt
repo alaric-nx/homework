@@ -76,6 +76,7 @@ fun HomeworkApp() {
             id = taskId,
             studentId = settingsStore.getCurrentStudentId(),
             subject = normalizeSubject(subject),
+            modelName = settingsStore.modelName.trim().ifBlank { "default" },
             status = "PENDING",
             thumbnailPath = thumbPath,
             imagePath = imagePath
